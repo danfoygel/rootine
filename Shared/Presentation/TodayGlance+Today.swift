@@ -2,12 +2,19 @@ import Foundation
 import WidgetKit
 
 extension TodayGlance {
-    init(_ today: TodayData, on day: LocalDay, at now: ClockTime) {
-        self.init(entries: today.entries, itemsByID: today.itemsByID, on: day, at: now)
+    init(_ today: TodayData, on day: LocalDay, at now: ClockTime, isTestData: Bool = false) {
+        self.init(entries: today.entries, itemsByID: today.itemsByID, on: day, at: now, isTestData: isTestData)
     }
 
-    init(entries: [TodayEntry], itemsByID: [UUID: ItemSnapshot], on day: LocalDay, at now: ClockTime) {
+    init(
+        entries: [TodayEntry],
+        itemsByID: [UUID: ItemSnapshot],
+        on day: LocalDay,
+        at now: ClockTime,
+        isTestData: Bool = false
+    ) {
         self.day = day.startDate()
+        self.isTestData = isTestData ? true : nil
         self.entries = entries.sortedByUrgency(at: now).map { entry in
             let item = itemsByID[entry.id]
             return Entry(

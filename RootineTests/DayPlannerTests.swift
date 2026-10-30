@@ -1,16 +1,8 @@
 import Foundation
 import Testing
 
-/// Week of Mon 2026-10-26 … Sun 2026-11-01, with Monday as the first weekday.
-private func day(_ month: Int, _ dayOfMonth: Int, year: Int = 2026) -> LocalDay {
-    LocalDay(year: year, month: month, day: dayOfMonth)
-}
-
+/// Monday-first, matching the fixed week of Mon 2026-10-26 … Sun 2026-11-01.
 private let planner = DayPlanner(firstWeekday: 2)
-
-private func done(_ plan: ItemPlan, on days: LocalDay..., amount: Int = 1) -> [CompletionRecord] {
-    days.map { CompletionRecord(id: UUID(), itemID: plan.id, day: $0, amount: amount) }
-}
 
 private func isListed(_ plan: ItemPlan, on listDay: LocalDay, _ records: [CompletionRecord] = []) -> Bool {
     planner.entry(for: plan, on: listDay, ledger: CompletionLedger(records)) != nil

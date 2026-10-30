@@ -119,6 +119,32 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  # iPhone UI smoke tests (TESTING.md §8). In-memory seeded store and a fixed clock via launch arguments.
+  RootineUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - RootineUITests
+    dependencies:
+      - target: Rootine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Rootine
+
+  # The same tests built for watchOS, to catch platform differences in Shared/.
+  RootineWatchTests:
+    type: bundle.unit-test
+    platform: watchOS
+    sources:
+      - RootineTests
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.watchkitapp.tests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Rootine:
     build:
@@ -136,3 +162,16 @@ schemes:
         RootineWatch: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - RootineWatchTests
+  RootineUITests:
+    build:
+      targets:
+        Rootine: all
+        RootineUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - RootineUITests

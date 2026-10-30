@@ -158,6 +158,7 @@ Siri/Shortcuts were not selected.
 - SwiftData's CloudKit mirroring resolves concurrent edits to the same item close to, but not necessarily exactly as, per-field last-writer-wins; that is acceptable for a single user.
 - Undo (un-checking an item, or removing a counted tap) is recorded as a compensating event, not a deletion.
 - Both devices schedule their own local notifications so the Watch works without the iPhone. Avoiding duplicate alerts when both are present, and cancelling reminders for items completed on the other device, needs a spike before the notification work.
+- **Test mode (decided):** both apps, in every build, have a Real data / Test data switch in Settings. Test data is a built-in scenario held in a separate local store (never CloudKit). It can be edited freely and resets to the scenario on every cold launch or on demand. The iPhone and Watch switch modes together and relay test changes between them. Reminders, widgets and complications follow the active mode, and the real store is never touched while test mode is on. Details are in `TESTING.md` §6.5.
 
 ## 13. Look and feel
 

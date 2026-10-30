@@ -6,16 +6,28 @@ import SwiftUI
 struct WatchTodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(WatchRelay.self) private var relay
+    @Environment(DataStore.self) private var store
+    @Environment(\.appClock) private var clock
     @Query private var items: [Item]
     @Query private var events: [CompletionEvent]
+    @State private var isShowingSettings = false
 
     var body: some View {
         NavigationStack {
             TimelineView(.everyMinute) { context in
-                list(at: context.date)
+                list(at: clock.now(context.date))
             }
-            .navigationTitle("Today")
+            .navigationTitle(store.isTestMode ? "Test Data" : "Today")
+            .sheet(isPresented: $isShowingSettings) {
+                WatchSettingsView()
+            }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: store.isTestMode ? "flask" : "gearshape") {
+                        isShowingSettings = true
+                    }
+                    .tint(store.isTestMode ? .orange : nil)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     TextFieldLink(prompt: Text("New to-do")) {
                         Label("Add To-do", systemImage: "plus")
@@ -25,7 +37,7 @@ struct WatchTodayView: View {
                 }
             }
         }
-        .relaying(items: items, events: events, through: relay)
+        .relaying(items: items, events: events, through: relay, today: clock.today)
     }
 
     private func list(at date: Date) -> some View {
@@ -66,7 +78,7 @@ struct WatchTodayView: View {
                 )
             }
         }
-        .onChange(of: TodayGlance(today, on: day, at: now), initial: true) { _, glance in
+        .onChange(of: TodayGlance(today, on: day, at: now, isTestData: store.isTestMode), initial: true) { _, glance in
             glance.publish()
         }
     }
@@ -74,12 +86,11 @@ struct WatchTodayView: View {
     private func addToDo(named text: String) {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        modelContext.insert(Item(name: name, kind: .oneOff))
+        modelContext.insert(Item(name: name, kind: .oneOff, startDay: clock.today))
     }
 }
 
 #Preview {
     WatchTodayView()
-        .modelContainer(PreviewData.container())
-        .environment(WatchRelay.inert)
+        .previewStore()
 }

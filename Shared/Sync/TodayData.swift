@@ -15,12 +15,12 @@ struct TodayData {
 
 extension View {
     /// Keeps the other device's copy of this library current, and prunes relayed events once CloudKit delivers them.
-    func relaying(items: [Item], events: [CompletionEvent], through relay: WatchRelay) -> some View {
+    func relaying(items: [Item], events: [CompletionEvent], through relay: WatchRelay, today: LocalDay) -> some View {
         onChange(of: items.map(\.snapshot), initial: true) { _, snapshots in
             relay.publish(items: snapshots)
         }
         .onChange(of: events.map(\.id), initial: true) { _, ids in
-            relay.prune(storedEventIDs: Set(ids), today: LocalDay(.now))
+            relay.prune(storedEventIDs: Set(ids), today: today)
         }
     }
 }

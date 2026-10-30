@@ -89,32 +89,80 @@ struct RelayState: Equatable, Codable, Sendable {
 }
 
 /// Encodes relay data into WatchConnectivity dictionaries (property-list values only) and back.
+///
+/// The JSON is LZFSE-compressed: WatchConnectivity rejects payloads over 64 KB, which an uncompressed library
+/// reaches at around 100 items. Uncompressed payloads (from builds before compression) still decode.
 enum RelayPayload {
     private static let eventsKey = "events"
     private static let libraryKey = "library"
+    private static let modeKey = "mode"
+    private static let generationKey = "generation"
+    private static let settingsKey = "settings"
 
     struct Decoded: Sendable {
         var events: [CompletionRecord] = []
         var library: ItemLibrary?
+        /// Payloads from builds before test mode carry no channel, and are real data.
+        var channel = RelayChannel.real
+        /// The sender's Real/Test switch, carried in every application context.
+        var settings: TestModeSettings?
     }
 
-    static func message(events: [CompletionRecord]) -> [String: Any] {
-        (try? JSONEncoder().encode(events)).map { [eventsKey: $0] } ?? [:]
+    static func message(events: [CompletionRecord], channel: RelayChannel = .real) -> [String: Any] {
+        guard let json = try? JSONEncoder().encode(events) else { return [:] }
+        return stamped([eventsKey: pack(json)], channel)
     }
 
-    static func message(library: ItemLibrary) -> [String: Any] {
-        (try? JSONEncoder().encode(library)).map { [libraryKey: $0] } ?? [:]
+    static func message(
+        library: ItemLibrary?,
+        channel: RelayChannel = .real,
+        settings: TestModeSettings? = nil
+    ) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        if let library, let json = try? JSONEncoder().encode(library) {
+            payload[libraryKey] = pack(json)
+        }
+        if let settings, let json = try? JSONEncoder().encode(settings) {
+            payload[settingsKey] = json
+        }
+        return payload.isEmpty ? [:] : stamped(payload, channel)
     }
 
     static func decode(_ payload: [String: Any]) -> Decoded {
         let decoder = JSONDecoder()
         var decoded = Decoded()
         if let data = payload[eventsKey] as? Data {
-            decoded.events = (try? decoder.decode([CompletionRecord].self, from: data)) ?? []
+            decoded.events = (try? decoder.decode([CompletionRecord].self, from: unpack(data))) ?? []
         }
         if let data = payload[libraryKey] as? Data {
-            decoded.library = try? decoder.decode(ItemLibrary.self, from: data)
+            decoded.library = try? decoder.decode(ItemLibrary.self, from: unpack(data))
+        }
+        if let data = payload[settingsKey] as? Data {
+            decoded.settings = try? decoder.decode(TestModeSettings.self, from: data)
+        }
+        if let mode = (payload[modeKey] as? String).flatMap(DataMode.init(rawValue:)) {
+            let generation = (payload[generationKey] as? Double).map(Date.init(timeIntervalSinceReferenceDate:))
+            decoded.channel = RelayChannel(mode: mode, generation: generation)
         }
         return decoded
+    }
+
+    private static func stamped(_ payload: [String: Any], _ channel: RelayChannel) -> [String: Any] {
+        var payload = payload
+        payload[modeKey] = channel.mode.rawValue
+        if let generation = channel.generation {
+            payload[generationKey] = generation.timeIntervalSinceReferenceDate
+        }
+        return payload
+    }
+
+    private static func pack(_ json: Data) -> Data {
+        (try? (json as NSData).compressed(using: .lzfse) as Data) ?? json
+    }
+
+    /// Raw JSON can't pass for LZFSE (which starts with a `bvx` block header), so a failed decompression means
+    /// the payload was never compressed.
+    private static func unpack(_ data: Data) -> Data {
+        (try? (data as NSData).decompressed(using: .lzfse) as Data) ?? data
     }
 }

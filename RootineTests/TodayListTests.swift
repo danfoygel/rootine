@@ -13,10 +13,6 @@ private func habit(
     ItemPlan(name: name, kind: .habit, recurrence: .daily, timeOfDay: timeOfDay, startDay: start, category: category)
 }
 
-private func at(_ hour: Int) -> TimeOfDay {
-    .exact(ClockTime(hour: hour))
-}
-
 struct TapAmountTests {
     @Test func habitChecksAndUnchecksWholeTotal() {
         #expect(TodayEntry(plan: habit("Stretch"), total: 0).tapAmount == 1)
@@ -45,11 +41,11 @@ struct TodayLayoutTests {
 
     private var entries: [TodayEntry] {
         [
-            TodayEntry(plan: habit("Read", at(21), category: home), total: 0),
-            TodayEntry(plan: habit("Vitamins", at(8), category: health), total: 0),
+            TodayEntry(plan: habit("Read", .at(21), category: home), total: 0),
+            TodayEntry(plan: habit("Vitamins", .at(8), category: health), total: 0),
             TodayEntry(plan: habit("Walk", .window(start: ClockTime(hour: 12), end: ClockTime(hour: 14))), total: 1),
             TodayEntry(plan: habit("Floss", category: health), total: 0),
-            TodayEntry(plan: habit("Coffee", at(7), category: home), total: 1),
+            TodayEntry(plan: habit("Coffee", .at(7), category: home), total: 1),
         ]
     }
 
@@ -175,7 +171,7 @@ struct RowDetailTests {
     }
 
     @Test func overdueComesFirstAndAnytimeHabitHasNoDetail() throws {
-        let timed = TodayEntry(plan: habit("Vitamins", at(8)), total: 0)
+        let timed = TodayEntry(plan: habit("Vitamins", .at(8)), total: 0)
         let detail = try #require(timed.detail(unit: "", isOverdue: true))
         #expect(detail.hasPrefix("Overdue · "))
         #expect(TodayEntry(plan: habit("Floss"), total: 0).detail(unit: "", isOverdue: false) == nil)

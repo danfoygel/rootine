@@ -22,11 +22,14 @@ struct TodayRow: View {
             if let edit {
                 Button(action: edit) { summary }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("row.\(entry.plan.name).edit")
             } else {
                 summary
             }
             control
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("row.\(entry.plan.name)")
         .sensoryFeedback(trigger: entry.total) { old, new in
             if new < old {
                 return .decrease
@@ -70,6 +73,7 @@ struct TodayRow: View {
                         .font(.caption)
                         .foregroundStyle(isOverdue ? .red : .secondary)
                         .lineLimit(1)
+                        .accessibilityIdentifier("row.\(entry.plan.name).detail")
                 }
             }
             Spacer(minLength: 0)
@@ -95,6 +99,7 @@ struct TodayRow: View {
         }
         .buttonStyle(.borderless)
         .accessibilityLabel(controlLabel)
+        .accessibilityIdentifier("row.\(entry.plan.name).control")
     }
 
     private var controlLabel: String {

@@ -15,9 +15,8 @@ struct ItemEditorView: View {
     @State private var newCategoryName = ""
     @State private var isConfirmingDelete = false
 
-    init(item: Item?) {
+    init(item: Item?, today: LocalDay) {
         self.item = item
-        let today = LocalDay(.now)
         _draft = State(initialValue: item.map { ItemDraft(item: $0, today: today) } ?? ItemDraft(today: today))
     }
 
@@ -47,6 +46,7 @@ struct ItemEditorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
                         .disabled(draft.problem != nil)
+                        .accessibilityIdentifier("editor.save")
                 }
             }
             .alert("New Category", isPresented: $isAddingCategory) {
@@ -60,6 +60,7 @@ struct ItemEditorView: View {
                 titleVisibility: .visible
             ) {
                 Button("Delete Item", role: .destructive, action: delete)
+                    .accessibilityIdentifier("editor.confirmDelete")
             } message: {
                 Text("Its completion history is deleted too.")
             }
@@ -69,6 +70,7 @@ struct ItemEditorView: View {
     private var basicsSection: some View {
         Section {
             TextField("Name", text: $draft.name)
+                .accessibilityIdentifier("editor.name")
             Picker("Type", selection: $draft.kind) {
                 Text("Habit").tag(ItemKind.habit)
                 Text("To-do").tag(ItemKind.oneOff)
@@ -187,6 +189,7 @@ struct ItemEditorView: View {
     private var deleteSection: some View {
         Section {
             Button("Delete Item", role: .destructive) { isConfirmingDelete = true }
+                .accessibilityIdentifier("editor.delete")
         }
     }
 
@@ -200,7 +203,7 @@ struct ItemEditorView: View {
 
     private func save() {
         let target = item ?? {
-            let newItem = Item(name: draft.trimmedName, kind: draft.kind)
+            let newItem = Item(name: draft.trimmedName, kind: draft.kind, startDay: draft.startDay)
             modelContext.insert(newItem)
             return newItem
         }()
@@ -255,7 +258,6 @@ private extension ItemDraft {
 }
 
 #Preview("New") {
-    ItemEditorView(item: nil)
-        .modelContainer(PreviewData.container())
-        .environment(WatchRelay.inert)
+    ItemEditorView(item: nil, today: LocalDay(.now))
+        .previewStore()
 }

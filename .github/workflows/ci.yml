@@ -1,0 +1,90 @@
+# See TESTING.md section 11. Private-repo macOS minutes are limited: PRs run the unit gate only,
+# and the slower UI smoke suite runs weekly or on demand.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC: full run including UI tests
+  workflow_dispatch:
+    inputs:
+      ui:
+        description: Also run the UI smoke suite
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  # Simulator builds only; nothing under test uses CloudKit, so no signing is needed.
+  XCODEBUILD_FLAGS: CODE_SIGNING_ALLOWED=NO
+
+jobs:
+  check:
+    name: Lint, build and test
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26.3*.app 2>/dev/null | head -1)
+          if [[ -z "$xcode" ]]; then
+            xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+            echo "::warning::Xcode 26.3 not on this runner; using $xcode"
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
+      - name: Install tools
+        run: brew install xcodegen swiftlint swiftformat xcbeautify
+
+      - name: Pick simulators
+        run: |
+          xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          def newest(prefix, family):
+              keys = sorted((k for k in runtimes if prefix in k and runtimes[k]), key=lambda k: [int(p) for p in k.rsplit(prefix, 1)[1].split("-")])
+              for key in reversed(keys):
+                  devices = [d for d in runtimes[key] if d["name"].startswith(family)]
+                  if devices:
+                      return devices[0]
+              sys.exit("No " + family + " simulator found")
+          phone = newest("iOS-", "iPhone")
+          watch = newest("watchOS-", "Apple Watch")
+          print("SIM=id=" + phone["udid"])
+          print("WATCH_SIM=id=" + watch["udid"])
+          print(phone["name"], "/", watch["name"], file=sys.stderr)
+          ' >> "$GITHUB_ENV"
+
+      - name: Run checks
+        run: |
+          ui=""
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ inputs.ui }}" == "true" ]]; then ui="--ui"; fi
+          scripts/check.sh --sim "$SIM" --watch-sim "$WATCH_SIM" $ui
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [[ -f build/results/coverage.txt ]]; then
+            { echo "### Coverage of Shared/"; echo '```'; cat build/results/coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresults
+          path: build/results/*.xcresult
+          retention-days: 7
