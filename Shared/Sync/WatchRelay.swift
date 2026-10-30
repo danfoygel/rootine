@@ -56,7 +56,8 @@ final class WatchRelay: NSObject {
     @ObservationIgnored var onSettings: ((TestModeSettings) -> Void)?
     /// Called when test data arrives from a reset this device hasn't made yet.
     @ObservationIgnored var onNewerGeneration: ((Date) -> Void)?
-    @ObservationIgnored private let defaults: UserDefaults
+    /// `nil` keeps relay state in memory only.
+    @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let session: (any RelaySession)?
     /// The library to send once the session is ready; resent on activation.
     @ObservationIgnored private var latestItems: [ItemSnapshot]?
@@ -69,7 +70,7 @@ final class WatchRelay: NSObject {
     }
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults? = .standard,
         session: (any RelaySession)? = WCSession.isSupported() ? WCSession.default : nil
     ) {
         self.defaults = defaults
@@ -78,14 +79,15 @@ final class WatchRelay: NSObject {
         super.init()
     }
 
-    private static func loadState(for mode: DataMode, from defaults: UserDefaults) -> RelayState {
-        defaults.data(forKey: stateKey(for: mode))
+    private static func loadState(for mode: DataMode, from defaults: UserDefaults?) -> RelayState {
+        defaults?.data(forKey: stateKey(for: mode))
             .flatMap { try? JSONDecoder().decode(RelayState.self, from: $0) } ?? RelayState()
     }
 
-    /// A relay that never talks to WatchConnectivity, for previews.
+    /// A relay that never talks to WatchConnectivity and keeps nothing between launches, for previews and
+    /// UI tests. (Scenario IDs are stable, so a persisted tombstone would hide an item in every later run.)
     static var inert: WatchRelay {
-        WatchRelay(defaults: UserDefaults(suiteName: "preview") ?? .standard, session: nil)
+        WatchRelay(defaults: nil, session: nil)
     }
 
     func activate() {
@@ -185,7 +187,7 @@ final class WatchRelay: NSObject {
     }
 
     private func save() {
-        defaults.set(try? JSONEncoder().encode(state), forKey: Self.stateKey(for: channel.mode))
+        defaults?.set(try? JSONEncoder().encode(state), forKey: Self.stateKey(for: channel.mode))
     }
 }
 

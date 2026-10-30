@@ -131,3 +131,16 @@ final class WatchRelayTests {
         #expect(defaults.data(forKey: "watchRelay.state") == nil)
     }
 }
+
+@MainActor
+struct InertRelayTests {
+    /// Scenario IDs are stable, so anything an inert relay kept would leak into the next preview or UI test.
+    @Test func inertRelayKeepsNothingBetweenLaunches() {
+        let first = WatchRelay.inert
+        first.noteDeleted(UUID(stable: "typicalDay/item/Floss"))
+        first.receive(RelayPayload.Decoded(events: [
+            CompletionRecord(id: UUID(), itemID: UUID(), day: fixedToday, amount: 1)
+        ]))
+        #expect(WatchRelay.inert.state == RelayState())
+    }
+}
