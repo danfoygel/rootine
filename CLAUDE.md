@@ -9,10 +9,11 @@ project.yml          XcodeGen spec — source of truth for the Xcode project
 Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
 RootineWatchWidgets/ watchOS WidgetKit extension (complications), embedded in the Watch app
-Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting), Glance/ (today summary for widgets)
+Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting), Glance/ (today summary for widgets), Sync/ (relay), App/ (clock, launch arguments), TestMode/ (Real/Test data switch), Fixtures/ (scenarios and history generator; see TESTING.md)
 RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
                      (built twice: RootineTests for iOS, RootineWatchTests for watchOS)
 scripts/check.sh     the pre-commit / CI gate (see TESTING.md)
+RootineUITests/      iPhone XCUITest smoke suite (own scheme)
 .swiftlint.yml       lint rules
 .swiftformat         format rules
 ```
