@@ -66,7 +66,8 @@ A user can define several routines, for example **weekday**, **weekend** and **t
 ## 5. Reminders and notifications
 
 - Time-based notifications, per item or window.
-- **Follow-up behaviour is configurable per item**: a single reminder with snooze, repeat at an interval until done or the window ends, or escalate (gentle first, stronger haptics later). Defaults and intervals are **(open)**.
+- **Follow-up behaviour is configurable per item**: a single reminder with snooze, repeat at an interval until done or the window ends, or escalate (gentle first, stronger haptics later). Repeat/escalation intervals are **(open)**.
+- **v1 (decided):** every item gets a single reminder with **Done** and **Snooze (10 min)** actions; the repeat and escalate modes come after v1. Exact-time items are reminded at their time, windowed items when the window opens, and anytime items get no reminder by default.
 - Watch haptic taps, working when the iPhone is away.
 - **Location-based reminders** (on arriving at or leaving a place). Places are **saved named places** (e.g. Home, Work, Gym), each defined once with a map pin and radius, and items attach to them. **Arrive vs leave is chosen per item** (e.g. "take keys" when leaving home). Default radius and permission flow are **(open)**.
 - Notifications are interactive: complete or snooze an item from the notification itself.
@@ -136,6 +137,8 @@ Must work with the iPhone absent. In scope on the Watch:
 
 Creating and editing recurring items and routines happens on the iPhone.
 
+The Watch (Series 8) is **not a cellular model**: away from the iPhone and from known Wi-Fi it works fully offline and syncs once it is back on a network.
+
 ## 11. System surfaces
 
 - Home Screen and Lock Screen widgets on iPhone. They show **next/remaining items**, support **tap to complete** (check off an item or add +1 to a counted item), show the **pace indicator** once it exists, and include a small **Lock Screen glance** (count or status).
@@ -150,6 +153,11 @@ Siri/Shortcuts were not selected.
 - **CloudKit (iCloud)** is the sync mechanism, covering Phone↔Watch, backup and any additional devices.
 - Backup is CloudKit itself; no export or import is required.
 - Conflict handling (confirmed): completions and counted-item taps are recorded as individual timestamped events and merged (never overwritten), so checking something off on both devices cannot lose data. Edits to item definitions use last-writer-wins per field.
+- **Implementation (decided):** SwiftData with CloudKit sync is the store of record on each device. Because CloudKit sync on watchOS is opportunistic (it can lag by minutes), **WatchConnectivity** is added as a fast path for completions and edits while the two devices are in range.
+- **Relayed data is a display overlay, never stored in SwiftData.** Each completion event is relayed as it happens, and the whole item library (with recent deletions) is relayed as WatchConnectivity application context whenever it changes. The receiver shows them on top of its own store, with the newer edit winning, and drops each relayed copy once CloudKit delivers the real record. Because relayed copies never enter the store, CloudKit never ends up with duplicates. Items that exist only in the relay overlay can't be edited until CloudKit delivers them.
+- SwiftData's CloudKit mirroring resolves concurrent edits to the same item close to, but not necessarily exactly as, per-field last-writer-wins; that is acceptable for a single user.
+- Undo (un-checking an item, or removing a counted tap) is recorded as a compensating event, not a deletion.
+- Both devices schedule their own local notifications so the Watch works without the iPhone. Avoiding duplicate alerts when both are present, and cancelling reminders for items completed on the other device, needs a spike before the notification work.
 
 ## 13. Look and feel
 
@@ -173,6 +181,17 @@ Deferred past v1 (wanted, but not required first):
 
 **The v1 data model is strictly minimal**: only what v1 needs, with schema migrations for deferred features accepted later. Because v1 syncs through CloudKit, migrations must be planned with that in mind (additive changes preferred).
 
+What v1 includes (decided): all three item types (section 2), every recurrence pattern and time-of-day option (section 3), category, icon and color, and the switchable Today layouts (section 13). **Item weight is left out** until pace tracking arrives.
+
+### v1 defaults (decided)
+- **N times per week:** the week starts on the locale's first weekday. The item shows every day until the weekly target is met, and counts as missed only if the week ends short.
+- **Anchors:** every-N-days, every-N-months and N-days-after-last-done count from the item's start date, which defaults to the day it is created. A floating item with no completion yet is due on its start date.
+- **Times are local wall-clock times**: an 8am item stays at 8am in another time zone.
+- **"Flat by urgency" layout:** overdue first, then by due time; items with no time last.
+- **Watch complications:** remaining count for today and the next item.
+- **Identifiers:** iCloud container `iCloud.com.danfoygel.rootine`; App Group `group.com.danfoygel.rootine` (used on each device to share the store with its widget extension).
+- Widget tap-to-complete uses App Intents. This does not conflict with Siri/Shortcuts being out of scope; no intents are deliberately exposed to Shortcuts.
+
 ## 15. Technical constraints
 
 - iOS 26 / watchOS 26, SwiftUI, Swift 6 strict concurrency (see `CLAUDE.md`).
@@ -184,4 +203,4 @@ Deferred past v1 (wanted, but not required first):
 
 1. Which pace presentation to adopt after trying the candidates.
 2. Location reminders: default radius and permission flow.
-3. Notification follow-ups: default mode and repeat/escalation intervals.
+3. Notification follow-ups after v1: repeat and escalation intervals (the v1 default is settled in section 5).
