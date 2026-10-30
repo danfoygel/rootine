@@ -24,6 +24,11 @@ enum Scenario: String, CaseIterable, Identifiable, Sendable {
     /// The `typicalDay` library plus what the Watch has relayed: Vitamins renamed "Vitamins + fish oil" (a newer
     /// edit), a Watch-only to-do, Read deleted on the Watch, and Stretch checked off there.
     case relayOverlay
+    /// 60 generated items with long names covering every pattern and time mode, and a generated year of
+    /// history: for UI density and performance budgets.
+    case heavy
+    /// The `heavy` library with three generated years: for the device soak (TESTING.md §10.8).
+    case heavyThreeYears
 
     var id: Self {
         self
@@ -38,7 +43,14 @@ enum Scenario: String, CaseIterable, Identifiable, Sendable {
         case .countedHeavy: "Counted items"
         case .twoDeviceMerge: "Two-device merge"
         case .relayOverlay: "Relay overlay"
+        case .heavy: "Heavy (1 year)"
+        case .heavyThreeYears: "Heavy (3 years)"
         }
+    }
+
+    /// Scenarios with tens of thousands of events; slow to load into a store.
+    var isLarge: Bool {
+        self == .heavy || self == .heavyThreeYears
     }
 
     /// The scenario's data for `today`. `calendar` supplies the first weekday for weekly targets.
@@ -62,6 +74,12 @@ enum Scenario: String, CaseIterable, Identifiable, Sendable {
         case .relayOverlay:
             builder.addTypicalLibrary()
             builder.addRelayOverlay()
+        case .heavy:
+            builder.addHeavyLibrary(startedDaysAgo: 365)
+            builder.addGeneratedHistory(days: 365)
+        case .heavyThreeYears:
+            builder.addHeavyLibrary(startedDaysAgo: 3 * 365)
+            builder.addGeneratedHistory(days: 3 * 365)
         }
         return builder.data
     }
@@ -290,5 +308,55 @@ private extension ScenarioBuilder {
             day: today,
             amount: 1
         )])
+    }
+
+    mutating func addHeavyLibrary(startedDaysAgo: Int) {
+        let categories = ["Health", "Fitness", "Home", "Work", "Learning", "Errands"].map { category($0) }
+        let patterns: [Recurrence] = [
+            .daily, .daily, .daily, .everyNDays(2), .everyNDays(3), .weekly([2, 4, 6]), .weekly([1, 7]),
+            .monthly(MonthlyRule(anchor: .day(1))), .monthly(MonthlyRule(anchor: .lastDay)),
+            .monthly(MonthlyRule(anchor: .day(15), everyMonths: 3)), .timesPerWeek(3), .timesPerWeek(5),
+            .daysAfterLastDone(4), .daysAfterLastDone(10),
+        ]
+        let times: [TimeOfDay] = [.anytime, .at(7), .window(7, 9), .at(12, 30), .window(17, 19), .at(21), .anytime]
+        let names = [
+            "Morning mobility and breathing routine", "Take the evening medication with food",
+            "Review tomorrow's calendar and priorities", "Practise Spanish vocabulary flashcards",
+            "Wipe down the kitchen counters and hob", "Ten minutes of mindful breathing",
+            "Check the post and sort the paperwork", "Stretch hamstrings and lower back",
+            "Write three lines in the gratitude journal", "Water the balcony plants and herbs",
+        ]
+        for index in 0 ..< 60 {
+            let kind: ItemKind = index % 10 == 9 ? .oneOff : index % 5 == 4 ? .counted : .habit
+            let millilitres = index % 3 == 0
+            item(
+                "\(names[index % names.count]) (\(index + 1))",
+                kind,
+                repeats: patterns[index % patterns.count],
+                at: times[index % times.count],
+                startedDaysAgo: startedDaysAgo,
+                due: kind == .oneOff ? today.adding(days: index % 7 - 3) : nil,
+                target: millilitres ? 2000 : 8,
+                step: millilitres ? 250 : 1,
+                unit: kind == .counted ? (millilitres ? "ml" : "glasses") : "",
+                symbol: ItemSymbols.all[index % ItemSymbols.all.count],
+                color: ItemColor.allCases[index % ItemColor.allCases.count],
+                category: index % 7 == 6 ? nil : categories[index % categories.count]
+            )
+        }
+    }
+
+    /// A mix of behaviours across the library, so the history has diligent, typical, lapsing and chaotic items.
+    mutating func addGeneratedHistory(days: Int) {
+        let presets: [Behaviour] = [.diligent, .typical, .typical, .lapsing, .chaotic]
+        let positions = Dictionary(uniqueKeysWithValues: data.plans.enumerated().map { ($1.id, $0) })
+        let generator = HistoryGenerator(seed: 42, calendar: calendar)
+        data.events += generator.events(
+            for: data.plans,
+            from: today.adding(days: 1 - days),
+            through: today
+        ) { plan in
+            presets[(positions[plan.id] ?? 0) % presets.count]
+        }
     }
 }

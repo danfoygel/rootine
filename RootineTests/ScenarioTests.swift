@@ -35,7 +35,7 @@ struct ScenarioShapeTests {
         #expect(data.records.allSatisfy { itemIDs.contains($0.itemID) })
     }
 
-    @Test(arguments: Scenario.allCases)
+    @Test(arguments: Scenario.allCases.filter { !$0.isLarge })
     @MainActor
     func loadsIntoAnInMemoryStore(scenario: Scenario) throws {
         let data = data(scenario)
