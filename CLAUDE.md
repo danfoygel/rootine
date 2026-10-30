@@ -38,7 +38,7 @@ Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `projec
 - `gh` is signed in as `danfoygel`; remote is `github.com/danfoygel/rootine` (private).
 - MCP: the `xcode` server (`xcrun mcpbridge`) exposes Xcode tools (build, diagnostics, previews, etc.). Xcode must be running with Settings → Intelligence → "Allow external agents to use Xcode tools" on, and the connection approved in Xcode. If the server shows 0 tools in a session, approve the dialog in Xcode and start a fresh session.
 - `xcodebuildmcp` CLI and its skill are also installed.
-- Real devices: iPhone 14 ("dan") and Apple Watch Series 8 are paired for device testing. The phone must be connected, unlocked and in Developer Mode to show as available (`xcrun devicectl list devices`).
+- Real devices: iPhone 17 ("Big Green Phone", iOS 26.6) and Apple Watch Series 8 (watchOS 26.6), both registered to the team and in the provisioning profiles. Each must be unlocked and in Developer Mode to show as available (`xcrun devicectl list devices`); Xcode reaches the Watch through the iPhone, which is most reliable with the phone on a cable. A newly connected device needs one build with `-allowProvisioningUpdates -allowProvisioningDeviceRegistration` (the Watch via the `RootineWatch` scheme) to be added to the profiles. If the Watch is re-paired to a new phone, unpair it in Xcode's Devices window and let it reconnect.
 
 ## Commands
 
