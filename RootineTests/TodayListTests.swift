@@ -166,3 +166,31 @@ struct ItemDraftTests {
         #expect(draft.problem != nil)
     }
 }
+
+struct RowDetailTests {
+    @Test func countedShowsProgressAndUnit() {
+        let water = ItemPlan(name: "Water", kind: .counted, recurrence: .daily, startDay: start, dailyTarget: 8)
+        #expect(TodayEntry(plan: water, total: 3).detail(unit: "glasses", isOverdue: false) == "3 / 8 glasses")
+        #expect(TodayEntry(plan: water, total: 3).detail(unit: "", isOverdue: false) == "3 / 8")
+    }
+
+    @Test func overdueComesFirstAndAnytimeHabitHasNoDetail() throws {
+        let timed = TodayEntry(plan: habit("Vitamins", at(8)), total: 0)
+        let detail = try #require(timed.detail(unit: "", isOverdue: true))
+        #expect(detail.hasPrefix("Overdue · "))
+        #expect(TodayEntry(plan: habit("Floss"), total: 0).detail(unit: "", isOverdue: false) == nil)
+    }
+
+    @Test func carriedOverShowsDueDate() throws {
+        let plan = ItemPlan(
+            name: "Call",
+            kind: .oneOff,
+            startDay: start,
+            dueDay: LocalDay(year: 2026, month: 10, day: 28)
+        )
+        let entry = TodayEntry(plan: plan, total: 0, isCarriedOver: true)
+        let detail = try #require(entry.detail(unit: "", isOverdue: true))
+        #expect(detail.hasPrefix("Due "))
+        #expect(!detail.contains("Overdue"))
+    }
+}

@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-/// An in-memory store with a representative day, for previews.
+/// An in-memory store with a representative day, for previews (both apps).
 @MainActor
 enum PreviewData {
     static func container() -> ModelContainer {

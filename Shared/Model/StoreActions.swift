@@ -15,3 +15,9 @@ extension ModelContext {
         delete(item)
     }
 }
+
+extension DayPlanner {
+    func entries(on day: LocalDay, items: [Item], events: [CompletionEvent]) -> [TodayEntry] {
+        entries(on: day, items: items.map(\.plan), ledger: CompletionLedger(events.compactMap(\.record)))
+    }
+}

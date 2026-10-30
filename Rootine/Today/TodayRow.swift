@@ -28,7 +28,7 @@ struct TodayRow: View {
                             .foregroundStyle(entry.isDone ? .secondary : .primary)
                             .strikethrough(entry.isDone && !isCounted)
                             .lineLimit(1)
-                        if let detail {
+                        if let detail = entry.detail(unit: item.unit, isOverdue: isOverdue) {
                             Text(detail)
                                 .font(.caption)
                                 .foregroundStyle(isOverdue ? .red : .secondary)
@@ -67,24 +67,6 @@ struct TodayRow: View {
         }
     }
 
-    /// e.g. "Overdue · 8:00 AM" or "750 / 2,000 ml · 7:00 AM – 9:00 AM".
-    private var detail: String? {
-        var parts: [String] = []
-        if entry.isCarriedOver, let due = entry.plan.dueDay {
-            parts.append("Due \(due.startDate().formatted(.dateTime.month(.abbreviated).day()))")
-        } else if isOverdue {
-            parts.append("Overdue")
-        }
-        if isCounted {
-            let unit = item.unit.isEmpty ? "" : " \(item.unit)"
-            parts.append("\(entry.total.formatted()) / \(entry.target.formatted())\(unit)")
-        }
-        if let time = entry.plan.timeOfDay.label {
-            parts.append(time)
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
     private var control: some View {
         Button {
             record(entry.tapAmount)
@@ -110,28 +92,5 @@ struct TodayRow: View {
             return "Add \(max(1, entry.plan.stepSize))"
         }
         return entry.isDone ? "Mark not done" : "Mark done"
-    }
-}
-
-/// Counted-item control: progress ring with a plus (or a check once the target is met).
-private struct ProgressRing: View {
-    let fraction: Double
-    let tint: Color
-    let isDone: Bool
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(tint.opacity(0.2), lineWidth: 3)
-            Circle()
-                .trim(from: 0, to: min(1, fraction))
-                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Image(systemName: isDone ? "checkmark" : "plus")
-                .font(.caption.bold())
-                .foregroundStyle(tint)
-        }
-        .frame(width: 26, height: 26)
-        .animation(.snappy, value: fraction)
     }
 }

@@ -32,8 +32,7 @@ struct TodayView: View {
     private func list(at date: Date) -> some View {
         let day = LocalDay(date)
         let now = ClockTime(date)
-        let ledger = CompletionLedger(events.compactMap(\.record))
-        let entries = DayPlanner().entries(on: day, items: items.map(\.plan), ledger: ledger)
+        let entries = DayPlanner().entries(on: day, items: items, events: events)
         // CloudKit can't enforce unique IDs, so tolerate duplicates rather than trapping.
         let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let doneCount = entries.count(where: \.isDone)

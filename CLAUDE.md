@@ -1,6 +1,6 @@
 # Rootine
 
-Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app is still a placeholder.
+Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app has today's list and to-do quick-add. There is no sync yet, so each device has its own separate store.
 
 ## Project layout
 
