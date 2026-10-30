@@ -78,6 +78,7 @@ Several git worktrees (under `.claude/worktrees/`) can be worked on at once; eac
 ## Conventions
 
 - Run `swiftformat .` and `swiftlint lint` before committing; keep lint at 0 violations.
+- Testing strategy, coverage rules and the on-device checklist are in `TESTING.md`; logic changes in `Shared/` ship with tests.
 - Prefer SwiftUI and Swift concurrency (`async`/`await`, actors); the project builds in Swift 6 mode, so fix concurrency warnings rather than suppressing them.
 - Add capabilities/entitlements (HealthKit, notifications, etc.) via `project.yml` (`entitlements:` / `settings:`), not the Xcode UI. The signing team is a paid account, so CloudKit, HealthKit, push, etc. are available; capabilities may still need to be enabled on the App ID.
 - Keep the iPhone and Watch targets building at all times — the iOS scheme builds both.
