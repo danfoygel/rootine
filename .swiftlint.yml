@@ -1,6 +1,7 @@
 included:
   - Rootine
   - RootineWatch
+  - RootineWatchWidgets
   - Shared
   - RootineTests
 excluded:

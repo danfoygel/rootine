@@ -5,6 +5,8 @@ Rootine/Info.plist
 Rootine/Rootine.entitlements
 RootineWatch/Info.plist
 RootineWatch/RootineWatch.entitlements
+RootineWatchWidgets/Info.plist
+RootineWatchWidgets/RootineWatchWidgets.entitlements
 
 # Build / Xcode
 build/

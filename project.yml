@@ -56,12 +56,16 @@ targets:
     sources:
       - RootineWatch
       - Shared
+    dependencies:
+      - target: RootineWatchWidgets
+    # The App Group carries the today glance to the complications extension.
     entitlements:
       path: RootineWatch/RootineWatch.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers: [iCloud.com.danfoygel.rootine]
         com.apple.developer.icloud-services: [CloudKit]
         aps-environment: development
+        com.apple.security.application-groups: [group.com.danfoygel.rootine]
     info:
       path: RootineWatch/Info.plist
       properties:
@@ -76,6 +80,32 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Rootine
         INFOPLIST_KEY_WKApplication: YES
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.danfoygel.rootine
+
+  # Watch complications. Reads the today glance the Watch app writes to the App Group; no store access.
+  RootineWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - RootineWatchWidgets
+      - Shared/Glance
+      - Shared/Scheduling
+      - Shared/Presentation/ItemAppearance.swift
+    entitlements:
+      path: RootineWatchWidgets/RootineWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.danfoygel.rootine]
+    info:
+      path: RootineWatchWidgets/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.watchkitapp.widgets
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Rootine
 
   # Hostless logic tests: Shared/ is compiled straight into the bundle.
   RootineTests:
