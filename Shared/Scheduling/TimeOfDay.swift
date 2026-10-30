@@ -48,3 +48,15 @@ enum TimeOfDay: Hashable, Codable, Sendable {
         }
     }
 }
+
+extension TimeOfDay {
+    /// Shorthand for fixtures and tests: `.at(8)`, `.at(7, 30)`.
+    static func at(_ hour: Int, _ minute: Int = 0) -> TimeOfDay {
+        .exact(ClockTime(hour: hour, minute: minute))
+    }
+
+    /// Shorthand for fixtures and tests: `.window(7, 9)` is 7:00–9:00.
+    static func window(_ startHour: Int, _ endHour: Int) -> TimeOfDay {
+        .window(start: ClockTime(hour: startHour), end: ClockTime(hour: endHour))
+    }
+}

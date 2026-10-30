@@ -61,8 +61,22 @@ xcb() {
 run_tests() {
     local scheme="$1" destination="$2" name="$3"
     rm -rf "$results/$name.xcresult"
-    xcb -scheme "$scheme" -destination "$destination" -enableCodeCoverage YES \
-        -resultBundlePath "$results/$name.xcresult" test
+    if ! xcb -scheme "$scheme" -destination "$destination" -enableCodeCoverage YES \
+        -resultBundlePath "$results/$name.xcresult" test; then
+        report_failures "$results/$name.xcresult"
+        return 1
+    fi
+}
+
+# xcbeautify hides crashes and some failures; list them from the result bundle.
+report_failures() {
+    [[ -d "$1" ]] || return 0
+    printf '\n\033[31mFailed tests:\033[0m\n'
+    xcrun xcresulttool get test-results summary --path "$1" | python3 -c '
+import json, sys
+for failure in json.load(sys.stdin).get("testFailures", []):
+    print("  " + failure["testIdentifierString"] + ": " + failure["failureText"])
+'
 }
 
 coverage_summary() {
