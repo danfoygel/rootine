@@ -1,6 +1,6 @@
 # Rootine
 
-Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Currently a stub: both apps launch and show a placeholder screen; no functionality yet.
+Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. Both apps still show a placeholder screen; the shared data model and scheduling logic exist and are unit-tested.
 
 ## Project layout
 
@@ -8,13 +8,15 @@ Personal iPhone app with a companion Apple Watch app. Single developer (Dan), pe
 project.yml          XcodeGen spec — source of truth for the Xcode project
 Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
+Shared/              code compiled into both apps: Model/ (SwiftData) and Scheduling/ (pure, Sendable logic)
+RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
 .swiftlint.yml       lint rules
 .swiftformat         format rules
 ```
 
 - **`Rootine.xcodeproj` is generated and git-ignored.** Never edit it (or change settings in Xcode's UI — they are lost on regeneration). Change `project.yml`, then run `xcodegen generate`.
 - Files added or removed on disk are picked up by `xcodegen generate`; run it after adding files.
-- Shared code between the iPhone and Watch apps does not exist yet. When needed, add a `Shared/` directory and list it under `sources:` for both targets in `project.yml`.
+- `Shared/` is listed under `sources:` for both app targets and the test target. SwiftData models must stay CloudKit-compatible: every stored property defaulted or optional, no unique constraints, optional relationships with inverses.
 
 ## Identifiers
 
@@ -53,7 +55,7 @@ xcodebuild -project Rootine.xcodeproj -scheme RootineWatch \
   -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' \
   -derivedDataPath build build | xcbeautify
 
-# Tests (once a test target exists)
+# Unit tests
 xcodebuild -project Rootine.xcodeproj -scheme Rootine \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test | xcbeautify
 

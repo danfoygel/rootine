@@ -22,6 +22,7 @@ targets:
     platform: iOS
     sources:
       - Rootine
+      - Shared
     dependencies:
       - target: RootineWatch
     settings:
@@ -40,6 +41,7 @@ targets:
     platform: watchOS
     sources:
       - RootineWatch
+      - Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.watchkitapp
@@ -48,6 +50,18 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Rootine
         INFOPLIST_KEY_WKApplication: YES
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.danfoygel.rootine
+
+  # Hostless logic tests: Shared/ is compiled straight into the bundle.
+  RootineTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - RootineTests
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.tests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   Rootine:
@@ -58,6 +72,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - RootineTests
   RootineWatch:
     build:
       targets:
