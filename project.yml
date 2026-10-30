@@ -25,6 +25,20 @@ targets:
       - Shared
     dependencies:
       - target: RootineWatch
+    # CloudKit sync. Both apps share one container; aps-environment lets CloudKit push changes.
+    entitlements:
+      path: Rootine/Rootine.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.danfoygel.rootine]
+        com.apple.developer.icloud-services: [CloudKit]
+        aps-environment: development
+    # Keys with no INFOPLIST_KEY_ build setting; merged with the generated Info.plist.
+    info:
+      path: Rootine/Info.plist
+      properties:
+        UIBackgroundModes: [remote-notification]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine
@@ -42,6 +56,18 @@ targets:
     sources:
       - RootineWatch
       - Shared
+    entitlements:
+      path: RootineWatch/RootineWatch.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.danfoygel.rootine]
+        com.apple.developer.icloud-services: [CloudKit]
+        aps-environment: development
+    info:
+      path: RootineWatch/Info.plist
+      properties:
+        WKBackgroundModes: [remote-notification]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.watchkitapp

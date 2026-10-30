@@ -5,6 +5,7 @@ import SwiftUI
 /// Creating and editing recurring items happens on the iPhone.
 struct WatchTodayView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(WatchRelay.self) private var relay
     @Query private var items: [Item]
     @Query private var events: [CompletionEvent]
 
@@ -24,26 +25,30 @@ struct WatchTodayView: View {
                 }
             }
         }
+        .relaying(items: items, events: events, through: relay)
     }
 
     private func list(at date: Date) -> some View {
         let day = LocalDay(date)
         let now = ClockTime(date)
-        let entries = DayPlanner().entries(on: day, items: items, events: events).sortedByUrgency(at: now)
-        // CloudKit can't enforce unique IDs, so tolerate duplicates rather than trapping.
-        let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let today = TodayData(on: day, items: items, events: events, relay: relay.state)
+        let entries = today.entries.sortedByUrgency(at: now)
         let remaining = entries.count { !$0.isDone }
 
         return List {
             if !entries.isEmpty {
                 Section {
                     ForEach(entries) { entry in
-                        if let item = itemsByID[entry.id] {
+                        if let item = today.itemsByID[entry.id] {
                             WatchTodayRow(
                                 entry: entry,
                                 item: item,
                                 isOverdue: entry.isOverdue(at: now),
-                                record: { modelContext.recordProgress($0, itemID: entry.id, on: day) }
+                                record: { amount in
+                                    if let record = modelContext.recordProgress(amount, itemID: entry.id, on: day) {
+                                        relay.send(record)
+                                    }
+                                }
                             )
                         }
                     }
@@ -73,4 +78,5 @@ struct WatchTodayView: View {
 #Preview {
     WatchTodayView()
         .modelContainer(PreviewData.container())
+        .environment(WatchRelay.inert)
 }

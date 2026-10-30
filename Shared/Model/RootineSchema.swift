@@ -23,13 +23,15 @@ enum RootineMigrationPlan: SchemaMigrationPlan {
 }
 
 enum RootineStore {
-    /// CloudKit sync is not enabled yet; it arrives with the iCloud entitlement in the sync work.
+    static let cloudKitContainerID = "iCloud.com.danfoygel.rootine"
+
+    /// The on-disk store syncs through CloudKit's private database; in-memory stores (tests, previews) don't sync.
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         let schema = Schema(versionedSchema: RootineSchemaV1.self)
         let configuration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: inMemory,
-            cloudKitDatabase: .none
+            cloudKitDatabase: inMemory ? .none : .private(cloudKitContainerID)
         )
         return try ModelContainer(
             for: schema,

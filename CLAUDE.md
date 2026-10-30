@@ -1,6 +1,6 @@
 # Rootine
 
-Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app has today's list and to-do quick-add. There is no sync yet, so each device has its own separate store.
+Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app has today's list and to-do quick-add. Sync is CloudKit (SwiftData's private database) plus a WatchConnectivity relay overlay; see `Shared/Sync/` and section 12 of `REQUIREMENTS.md`.
 
 ## Project layout
 
@@ -29,7 +29,7 @@ RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled stra
 | Swift | 6.0 language mode (strict concurrency), toolchain 6.2.4 |
 | UI | SwiftUI |
 
-Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `project.yml`); there are no plist files to edit.
+Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `project.yml`). Keys with no `INFOPLIST_KEY_` setting (e.g. background modes) go under the target's `info: properties:`, and entitlements under `entitlements: properties:`; XcodeGen writes those `Info.plist` / `.entitlements` files, which are git-ignored. Never edit them by hand.
 
 ## Toolchain (this machine)
 
@@ -63,7 +63,7 @@ swiftformat .                          # format
 swiftlint lint                         # lint (should report 0 violations)
 ```
 
-Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. No iPhone+Watch simulator pair exists yet; create one with `xcrun simctl pair <watch-udid> <phone-udid>` when testing watch connectivity in the simulator.
+Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. iPhone 17 Pro and Apple Watch Series 11 (46mm) are paired (`xcrun simctl list pairs`), so WatchConnectivity works between them; install each app on its own simulator. The simulators have no iCloud account, so CloudKit sync itself can only be tested on the real devices.
 
 ## Conventions
 

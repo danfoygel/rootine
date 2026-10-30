@@ -21,6 +21,8 @@ final class Item {
     var dailyTarget = 1
     var stepSize = 1
     var createdAt = Date()
+    /// Bumped on every edit; decides which copy wins when a relayed snapshot meets the stored item.
+    var modifiedAt = Date()
     var category: ItemCategory?
 
     init(

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(WatchRelay.self) private var relay
     @Query private var items: [Item]
     @Query private var events: [CompletionEvent]
     @AppStorage("todayLayout") private var layout = TodayLayout.byTime
@@ -27,27 +28,29 @@ struct TodayView: View {
                 ItemEditorView(item: target.item)
             }
         }
+        .relaying(items: items, events: events, through: relay)
     }
 
     private func list(at date: Date) -> some View {
         let day = LocalDay(date)
         let now = ClockTime(date)
-        let entries = DayPlanner().entries(on: day, items: items, events: events)
+        let today = TodayData(on: day, items: items, events: events, relay: relay.state)
+        let entries = today.entries
         // CloudKit can't enforce unique IDs, so tolerate duplicates rather than trapping.
-        let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let modelsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let doneCount = entries.count(where: \.isDone)
 
         return List {
             ForEach(layout.sections(for: entries, at: now)) { section in
                 Section {
                     ForEach(section.entries) { entry in
-                        if let item = itemsByID[entry.id] {
+                        if let item = today.itemsByID[entry.id] {
                             TodayRow(
                                 entry: entry,
                                 item: item,
                                 isOverdue: entry.isOverdue(at: now),
-                                record: { modelContext.recordProgress($0, itemID: entry.id, on: day) },
-                                edit: { editorTarget = .edit(item) }
+                                record: { record($0, for: entry, on: day) },
+                                edit: modelsByID[entry.id].map { model in { editorTarget = .edit(model) } }
                             )
                         }
                     }
@@ -66,6 +69,12 @@ struct TodayView: View {
             if entries.isEmpty {
                 emptyState
             }
+        }
+    }
+
+    private func record(_ amount: Int, for entry: TodayEntry, on day: LocalDay) {
+        if let record = modelContext.recordProgress(amount, itemID: entry.id, on: day) {
+            relay.send(record)
         }
     }
 
@@ -117,4 +126,5 @@ private enum EditorTarget: Identifiable {
 #Preview {
     TodayView()
         .modelContainer(PreviewData.container())
+        .environment(WatchRelay.inert)
 }

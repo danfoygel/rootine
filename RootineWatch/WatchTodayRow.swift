@@ -4,7 +4,7 @@ import SwiftUI
 /// Swipe to take back a counted step.
 struct WatchTodayRow: View {
     let entry: TodayEntry
-    let item: Item
+    let item: ItemSnapshot
     let isOverdue: Bool
     let record: (Int) -> Void
 

@@ -155,6 +155,7 @@ struct ItemDraft: Equatable {
         item.unit = kind == .counted ? unit.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         item.dailyTarget = kind == .counted ? max(1, dailyTarget) : 1
         item.stepSize = kind == .counted ? max(1, stepSize) : 1
+        item.modifiedAt = .now
     }
 
     private mutating func load(_ recurrence: Recurrence) {

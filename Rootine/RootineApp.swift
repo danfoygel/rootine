@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct RootineApp: App {
     let container: ModelContainer
+    let relay = WatchRelay()
 
     init() {
         do {
@@ -11,6 +12,7 @@ struct RootineApp: App {
         } catch {
             fatalError("Could not open the data store: \(error)")
         }
+        relay.activate()
     }
 
     var body: some Scene {
@@ -18,5 +20,6 @@ struct RootineApp: App {
             TodayView()
         }
         .modelContainer(container)
+        .environment(relay)
     }
 }

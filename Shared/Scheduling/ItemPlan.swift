@@ -7,7 +7,7 @@ enum ItemKind: String, Codable, CaseIterable, Sendable {
 }
 
 /// A value snapshot of an item, so scheduling and list logic stays pure and `Sendable`.
-struct ItemPlan: Identifiable, Hashable, Sendable {
+struct ItemPlan: Identifiable, Hashable, Codable, Sendable {
     var id: UUID
     var name: String
     var kind: ItemKind
@@ -53,7 +53,7 @@ struct ItemPlan: Identifiable, Hashable, Sendable {
     }
 }
 
-struct CategoryRef: Hashable, Sendable {
+struct CategoryRef: Hashable, Codable, Sendable {
     var id: UUID
     var name: String
     var sortOrder: Int

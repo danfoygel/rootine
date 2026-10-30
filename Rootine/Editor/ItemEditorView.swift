@@ -7,6 +7,7 @@ struct ItemEditorView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(WatchRelay.self) private var relay
     @Query(sort: [SortDescriptor(\ItemCategory.sortOrder), SortDescriptor(\ItemCategory.name)])
     private var categories: [ItemCategory]
     @State private var draft: ItemDraft
@@ -218,6 +219,7 @@ struct ItemEditorView: View {
 
     private func delete() {
         if let item {
+            relay.noteDeleted(item.id)
             try? modelContext.deleteItem(item)
         }
         dismiss()
@@ -255,4 +257,5 @@ private extension ItemDraft {
 #Preview("New") {
     ItemEditorView(item: nil)
         .modelContainer(PreviewData.container())
+        .environment(WatchRelay.inert)
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A value snapshot of one completion event. `amount` is signed: undo is recorded as a negative event.
-struct CompletionRecord: Hashable, Sendable {
+struct CompletionRecord: Hashable, Codable, Sendable {
     var id: UUID
     var itemID: UUID
     var day: LocalDay

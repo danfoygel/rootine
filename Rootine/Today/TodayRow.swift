@@ -3,10 +3,11 @@ import SwiftUI
 /// A dense list row: tapping the text edits the item, tapping the trailing control checks it off or adds a step.
 struct TodayRow: View {
     let entry: TodayEntry
-    let item: Item
+    let item: ItemSnapshot
     let isOverdue: Bool
     let record: (Int) -> Void
-    let edit: () -> Void
+    /// `nil` for an item relayed from the Watch that hasn't reached this device's store yet.
+    let edit: (() -> Void)?
 
     private var tint: Color {
         ItemColor.named(item.colorName).color
@@ -18,29 +19,12 @@ struct TodayRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: edit) {
-                HStack(spacing: 10) {
-                    Image(systemName: item.symbolName)
-                        .foregroundStyle(tint)
-                        .frame(width: 26)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(entry.plan.name)
-                            .foregroundStyle(entry.isDone ? .secondary : .primary)
-                            .strikethrough(entry.isDone && !isCounted)
-                            .lineLimit(1)
-                        if let detail = entry.detail(unit: item.unit, isOverdue: isOverdue) {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(isOverdue ? .red : .secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
+            if let edit {
+                Button(action: edit) { summary }
+                    .buttonStyle(.plain)
+            } else {
+                summary
             }
-            .buttonStyle(.plain)
-
             control
         }
         .sensoryFeedback(trigger: entry.total) { old, new in
@@ -54,10 +38,14 @@ struct TodayRow: View {
                 Button("Undo", systemImage: "minus") { record(undo) }
                     .tint(.orange)
             }
-            Button("Edit", systemImage: "pencil", action: edit)
+            if let edit {
+                Button("Edit", systemImage: "pencil", action: edit)
+            }
         }
         .contextMenu {
-            Button("Edit", systemImage: "pencil", action: edit)
+            if let edit {
+                Button("Edit", systemImage: "pencil", action: edit)
+            }
             if let undo = entry.undoStepAmount {
                 Button("Undo Last Step", systemImage: "minus") { record(undo) }
             }
@@ -65,6 +53,28 @@ struct TodayRow: View {
                 Button("Reset Today", systemImage: "arrow.counterclockwise", role: .destructive) { record(reset) }
             }
         }
+    }
+
+    private var summary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.symbolName)
+                .foregroundStyle(tint)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.plan.name)
+                    .foregroundStyle(entry.isDone ? .secondary : .primary)
+                    .strikethrough(entry.isDone && !isCounted)
+                    .lineLimit(1)
+                if let detail = entry.detail(unit: item.unit, isOverdue: isOverdue) {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(isOverdue ? .red : .secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(.rect)
     }
 
     private var control: some View {
