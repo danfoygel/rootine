@@ -2,4 +2,4 @@
 --indent 4
 --maxwidth 120
 --trailingcommas multi-element-lists
---exclude build,DerivedData,*.xcodeproj
+--exclude build,DerivedData,*.xcodeproj,.claude

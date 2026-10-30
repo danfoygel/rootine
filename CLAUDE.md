@@ -63,6 +63,16 @@ swiftlint lint                         # lint (should report 0 violations)
 
 Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. No iPhone+Watch simulator pair exists yet; create one with `xcrun simctl pair <watch-udid> <phone-udid>` when testing watch connectivity in the simulator.
 
+## Parallel worktrees
+
+Several git worktrees (under `.claude/worktrees/`) can be worked on at once; each is an independent copy of the project.
+
+- A fresh worktree has no `Rootine.xcodeproj` — run `xcodegen generate` in it first.
+- Build with `-derivedDataPath build` so output stays in that worktree's own `build/`.
+- Simulators and devices are shared, and every worktree installs the same bundle ID. Use a different simulator per worktree (e.g. iPhone 17 Pro in one, iPhone 17 in another); don't run tests on the same simulator from two worktrees at once. Only one build can be on the real iPhone/Watch at a time.
+- The `xcode` MCP server drives whichever Xcode windows are open, and every window is titled "Rootine". Keep only the active worktree open in Xcode; other worktrees build and test with `xcodebuild`.
+- `.swiftformat` excludes `.claude` so `swiftformat .` in the main checkout doesn't touch worktrees; SwiftLint only includes `Rootine/` and `RootineWatch/`.
+
 ## Conventions
 
 - Run `swiftformat .` and `swiftlint lint` before committing; keep lint at 0 violations.
