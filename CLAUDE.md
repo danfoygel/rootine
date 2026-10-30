@@ -22,7 +22,7 @@ RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
 |---|---|
 | iOS bundle ID | `com.danfoygel.rootine` |
 | watchOS bundle ID | `com.danfoygel.rootine.watchkitapp` (companion = iOS app) |
-| Signing team | `ZVU48K8YCD` (personal team, automatic signing) |
+| Signing team | `ZVU48K8YCD` (paid Apple Developer Program, individual account; automatic signing) |
 | Deployment targets | iOS 26.0, watchOS 26.0 |
 | Swift | 6.0 language mode (strict concurrency), toolchain 6.2.4 |
 | UI | SwiftUI |
@@ -67,5 +67,5 @@ Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 1
 
 - Run `swiftformat .` and `swiftlint lint` before committing; keep lint at 0 violations.
 - Prefer SwiftUI and Swift concurrency (`async`/`await`, actors); the project builds in Swift 6 mode, so fix concurrency warnings rather than suppressing them.
-- Add capabilities/entitlements (HealthKit, notifications, etc.) via `project.yml` (`entitlements:` / `settings:`), not the Xcode UI. Note: the signing team is a personal team, so check that a capability is supported before depending on it.
+- Add capabilities/entitlements (HealthKit, notifications, etc.) via `project.yml` (`entitlements:` / `settings:`), not the Xcode UI. The signing team is a paid account, so CloudKit, HealthKit, push, etc. are available; capabilities may still need to be enabled on the App ID.
 - Keep the iPhone and Watch targets building at all times — the iOS scheme builds both.
