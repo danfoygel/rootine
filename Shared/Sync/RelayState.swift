@@ -89,6 +89,9 @@ struct RelayState: Equatable, Codable, Sendable {
 }
 
 /// Encodes relay data into WatchConnectivity dictionaries (property-list values only) and back.
+///
+/// The JSON is LZFSE-compressed: WatchConnectivity rejects payloads over 64 KB, which an uncompressed library
+/// reaches at around 100 items. Uncompressed payloads (from builds before compression) still decode.
 enum RelayPayload {
     private static let eventsKey = "events"
     private static let libraryKey = "library"
@@ -99,22 +102,32 @@ enum RelayPayload {
     }
 
     static func message(events: [CompletionRecord]) -> [String: Any] {
-        (try? JSONEncoder().encode(events)).map { [eventsKey: $0] } ?? [:]
+        (try? JSONEncoder().encode(events)).map { [eventsKey: pack($0)] } ?? [:]
     }
 
     static func message(library: ItemLibrary) -> [String: Any] {
-        (try? JSONEncoder().encode(library)).map { [libraryKey: $0] } ?? [:]
+        (try? JSONEncoder().encode(library)).map { [libraryKey: pack($0)] } ?? [:]
     }
 
     static func decode(_ payload: [String: Any]) -> Decoded {
         let decoder = JSONDecoder()
         var decoded = Decoded()
         if let data = payload[eventsKey] as? Data {
-            decoded.events = (try? decoder.decode([CompletionRecord].self, from: data)) ?? []
+            decoded.events = (try? decoder.decode([CompletionRecord].self, from: unpack(data))) ?? []
         }
         if let data = payload[libraryKey] as? Data {
-            decoded.library = try? decoder.decode(ItemLibrary.self, from: data)
+            decoded.library = try? decoder.decode(ItemLibrary.self, from: unpack(data))
         }
         return decoded
+    }
+
+    private static func pack(_ json: Data) -> Data {
+        (try? (json as NSData).compressed(using: .lzfse) as Data) ?? json
+    }
+
+    /// Raw JSON can't pass for LZFSE (which starts with a `bvx` block header), so a failed decompression means
+    /// the payload was never compressed.
+    private static func unpack(_ data: Data) -> Data {
+        (try? (data as NSData).decompressed(using: .lzfse) as Data) ?? data
     }
 }
