@@ -113,10 +113,10 @@ struct RelayPersistenceTests {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         defaults.set(Data("not json".utf8), forKey: "watchRelay.state")
-        #expect(WatchRelay(defaults: defaults, usesSession: false).state == RelayState())
+        #expect(WatchRelay(defaults: defaults, session: nil).state == RelayState())
 
         defaults.set(Data(Self.savedV1.utf8), forKey: "watchRelay.state")
-        #expect(WatchRelay(defaults: defaults, usesSession: false).state.events.count == 1)
+        #expect(WatchRelay(defaults: defaults, session: nil).state.events.count == 1)
     }
 }
 
