@@ -71,9 +71,9 @@ Several git worktrees (under `.claude/worktrees/`) can be worked on at once; eac
 
 - A fresh worktree has no `Rootine.xcodeproj` — run `xcodegen generate` in it first.
 - Build with `-derivedDataPath build` so output stays in that worktree's own `build/`.
-- Simulators and devices are shared, and every worktree installs the same bundle ID. Use a different simulator per worktree (e.g. iPhone 17 Pro in one, iPhone 17 in another); don't run tests on the same simulator from two worktrees at once. Only one build can be on the real iPhone/Watch at a time.
+- Simulators and devices are shared, and every worktree installs the same bundle ID. Use a different simulator per worktree (e.g. iPhone 17 Pro in one, iPhone 17 in another); don't run tests on the same simulator from two worktrees at once. Only one worktree at a time can use the paired iPhone 17 Pro / Watch Series 11 (46mm) for WatchConnectivity work; another needs its own pair (`xcrun simctl pair`). Only one build can be on the real iPhone/Watch at a time.
 - The `xcode` MCP server drives whichever Xcode windows are open, and every window is titled "Rootine". Keep only the active worktree open in Xcode; other worktrees build and test with `xcodebuild`.
-- `.swiftformat` excludes `.claude` so `swiftformat .` in the main checkout doesn't touch worktrees; SwiftLint only includes `Rootine/` and `RootineWatch/`.
+- `.swiftformat` excludes `.claude` so `swiftformat .` in the main checkout doesn't touch worktrees; SwiftLint only includes the source directories listed in `.swiftlint.yml`.
 
 ## Conventions
 
