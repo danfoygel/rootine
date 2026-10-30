@@ -95,18 +95,37 @@ struct RelayState: Equatable, Codable, Sendable {
 enum RelayPayload {
     private static let eventsKey = "events"
     private static let libraryKey = "library"
+    private static let modeKey = "mode"
+    private static let generationKey = "generation"
+    private static let settingsKey = "settings"
 
     struct Decoded: Sendable {
         var events: [CompletionRecord] = []
         var library: ItemLibrary?
+        /// Payloads from builds before test mode carry no channel, and are real data.
+        var channel = RelayChannel.real
+        /// The sender's Real/Test switch, carried in every application context.
+        var settings: TestModeSettings?
     }
 
-    static func message(events: [CompletionRecord]) -> [String: Any] {
-        (try? JSONEncoder().encode(events)).map { [eventsKey: pack($0)] } ?? [:]
+    static func message(events: [CompletionRecord], channel: RelayChannel = .real) -> [String: Any] {
+        guard let json = try? JSONEncoder().encode(events) else { return [:] }
+        return stamped([eventsKey: pack(json)], channel)
     }
 
-    static func message(library: ItemLibrary) -> [String: Any] {
-        (try? JSONEncoder().encode(library)).map { [libraryKey: pack($0)] } ?? [:]
+    static func message(
+        library: ItemLibrary?,
+        channel: RelayChannel = .real,
+        settings: TestModeSettings? = nil
+    ) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        if let library, let json = try? JSONEncoder().encode(library) {
+            payload[libraryKey] = pack(json)
+        }
+        if let settings, let json = try? JSONEncoder().encode(settings) {
+            payload[settingsKey] = json
+        }
+        return payload.isEmpty ? [:] : stamped(payload, channel)
     }
 
     static func decode(_ payload: [String: Any]) -> Decoded {
@@ -118,7 +137,23 @@ enum RelayPayload {
         if let data = payload[libraryKey] as? Data {
             decoded.library = try? decoder.decode(ItemLibrary.self, from: unpack(data))
         }
+        if let data = payload[settingsKey] as? Data {
+            decoded.settings = try? decoder.decode(TestModeSettings.self, from: data)
+        }
+        if let mode = (payload[modeKey] as? String).flatMap(DataMode.init(rawValue:)) {
+            let generation = (payload[generationKey] as? Double).map(Date.init(timeIntervalSinceReferenceDate:))
+            decoded.channel = RelayChannel(mode: mode, generation: generation)
+        }
         return decoded
+    }
+
+    private static func stamped(_ payload: [String: Any], _ channel: RelayChannel) -> [String: Any] {
+        var payload = payload
+        payload[modeKey] = channel.mode.rawValue
+        if let generation = channel.generation {
+            payload[generationKey] = generation.timeIntervalSinceReferenceDate
+        }
+        return payload
     }
 
     private static func pack(_ json: Data) -> Data {

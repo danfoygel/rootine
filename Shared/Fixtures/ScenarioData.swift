@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// A scenario's library and activity as plain values, so pure tests can use them without SwiftData.
-struct ScenarioData: Equatable, Sendable {
+struct ScenarioData: Codable, Equatable, Sendable {
     var categories: [CategoryRef] = []
     var items: [ItemSnapshot] = []
     var events: [ScenarioEvent] = []
@@ -22,7 +22,7 @@ struct ScenarioData: Equatable, Sendable {
     }
 }
 
-struct ScenarioEvent: Hashable, Sendable {
+struct ScenarioEvent: Codable, Hashable, Sendable {
     var record: CompletionRecord
     var recordedAt: Date
 }

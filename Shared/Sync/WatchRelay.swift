@@ -49,23 +49,38 @@ extension WCSession: RelaySession {
 @MainActor
 @Observable
 final class WatchRelay: NSObject {
-    private static let stateKey = "watchRelay.state"
-
     private(set) var state: RelayState
+    /// Real data, or the current reset of test data (TESTING.md §6.5). Payloads on other channels are dropped.
+    private(set) var channel = RelayChannel.real
+    /// Called when the other device's Real/Test settings arrive.
+    @ObservationIgnored var onSettings: ((TestModeSettings) -> Void)?
+    /// Called when test data arrives from a reset this device hasn't made yet.
+    @ObservationIgnored var onNewerGeneration: ((Date) -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let session: (any RelaySession)?
     /// The library to send once the session is ready; resent on activation.
     @ObservationIgnored private var latestItems: [ItemSnapshot]?
+    /// This device's settings, carried in every application context.
+    @ObservationIgnored private var settings: TestModeSettings?
+
+    /// Real and test data keep separate relay state.
+    static func stateKey(for mode: DataMode) -> String {
+        mode == .real ? "watchRelay.state" : "watchRelay.state.test"
+    }
 
     init(
         defaults: UserDefaults = .standard,
         session: (any RelaySession)? = WCSession.isSupported() ? WCSession.default : nil
     ) {
         self.defaults = defaults
-        state = defaults.data(forKey: Self.stateKey)
-            .flatMap { try? JSONDecoder().decode(RelayState.self, from: $0) } ?? RelayState()
+        state = Self.loadState(for: .real, from: defaults)
         self.session = session
         super.init()
+    }
+
+    private static func loadState(for mode: DataMode, from defaults: UserDefaults) -> RelayState {
+        defaults.data(forKey: stateKey(for: mode))
+            .flatMap { try? JSONDecoder().decode(RelayState.self, from: $0) } ?? RelayState()
     }
 
     /// A relay that never talks to WatchConnectivity, for previews.
@@ -80,26 +95,44 @@ final class WatchRelay: NSObject {
 
     func send(_ record: CompletionRecord) {
         guard let session, isCounterpartAvailable(session) else { return }
-        let payload = RelayPayload.message(events: [record])
+        let channel = channel
+        let payload = RelayPayload.message(events: [record], channel: channel)
         guard session.isReachable else {
             session.queue(userInfo: payload)
             return
         }
         // Immediate when the other app is running; fall back to the queued transfer if that fails.
         session.send(message: payload) { [weak self] _ in
-            Task { @MainActor in self?.session?.queue(userInfo: RelayPayload.message(events: [record])) }
+            Task { @MainActor in
+                self?.session?.queue(userInfo: RelayPayload.message(events: [record], channel: channel))
+            }
         }
     }
 
     func publish(items: [ItemSnapshot]) {
         latestItems = items
-        sendLibrary()
+        sendContext()
+    }
+
+    /// Switches to another channel's relay state. `clearing` starts it empty (a test-data reset).
+    func use(_ channel: RelayChannel, clearing: Bool = false) {
+        save()
+        self.channel = channel
+        state = clearing ? RelayState() : Self.loadState(for: channel.mode, from: defaults)
+        latestItems = nil
+        save()
+    }
+
+    /// Tells the other device about this device's Real/Test settings.
+    func announce(_ settings: TestModeSettings) {
+        self.settings = settings
+        sendContext()
     }
 
     func noteDeleted(_ itemID: UUID, at date: Date = .now) {
         state.noteDeleted(itemID, at: date)
         save()
-        sendLibrary()
+        sendContext()
     }
 
     func prune(storedEventIDs: Set<UUID>, today: LocalDay, now: Date = .now) {
@@ -112,7 +145,19 @@ final class WatchRelay: NSObject {
 
     /// Takes in what the counterpart sent; called (on the main actor) from the session delegate callbacks.
     func receive(_ decoded: RelayPayload.Decoded) {
+        if let settings = decoded.settings {
+            onSettings?(settings)
+        }
         guard !decoded.events.isEmpty || decoded.library != nil else { return }
+        switch channel.verdict(for: decoded.channel) {
+        case .accept:
+            break
+        case .drop:
+            return
+        case let .newerGeneration(generation):
+            onNewerGeneration?(generation)
+            return
+        }
         state.receive(decoded.events)
         if let library = decoded.library {
             state.receive(library)
@@ -123,13 +168,16 @@ final class WatchRelay: NSObject {
     /// Activation finished: take in the context that arrived while this app wasn't running, and send ours.
     func didActivate(receivedContext: RelayPayload.Decoded) {
         receive(receivedContext)
-        sendLibrary()
+        sendContext()
     }
 
-    private func sendLibrary() {
-        guard let session, let latestItems, isCounterpartAvailable(session) else { return }
-        let library = ItemLibrary(items: latestItems, deletedIDs: Array(state.locallyDeletedIDs), sentAt: .now)
-        try? session.update(context: RelayPayload.message(library: library))
+    /// The application context: this device's library (once known) and its Real/Test settings.
+    private func sendContext() {
+        guard let session, latestItems != nil || settings != nil, isCounterpartAvailable(session) else { return }
+        let library = latestItems.map {
+            ItemLibrary(items: $0, deletedIDs: Array(state.locallyDeletedIDs), sentAt: .now)
+        }
+        try? session.update(context: RelayPayload.message(library: library, channel: channel, settings: settings))
     }
 
     private func isCounterpartAvailable(_ session: any RelaySession) -> Bool {
@@ -137,7 +185,7 @@ final class WatchRelay: NSObject {
     }
 
     private func save() {
-        defaults.set(try? JSONEncoder().encode(state), forKey: Self.stateKey)
+        defaults.set(try? JSONEncoder().encode(state), forKey: Self.stateKey(for: channel.mode))
     }
 }
 

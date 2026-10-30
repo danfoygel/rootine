@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Everything is anchored to the `today` passed in and uses stable IDs, so the same scenario and day always give
 /// identical data. Each case documents its highlights; `ScenarioTests` checks them.
-enum Scenario: String, CaseIterable, Identifiable, Sendable {
+enum Scenario: String, CaseIterable, Identifiable, Codable, Sendable {
     /// Nothing at all: first launch.
     case empty
     /// 12 items across Health, Home and Work with a month of mostly-done history. Vitamins is done today and on

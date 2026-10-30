@@ -33,6 +33,8 @@ struct TodayGlance: Codable, Hashable, Sendable {
     /// In urgency order, done entries last. Timed entries are already in due order, so entries that
     /// become overdue later in the day stay in the right place without re-sorting.
     var entries: [Entry]
+    /// Set while the app is in test mode, so complications can say so. Optional so older saved glances decode.
+    var isTestData: Bool?
 
     var remaining: [Entry] {
         entries.filter { !$0.isDone }

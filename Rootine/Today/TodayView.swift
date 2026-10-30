@@ -4,31 +4,47 @@ import SwiftUI
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(WatchRelay.self) private var relay
+    @Environment(DataStore.self) private var store
+    @Environment(\.appClock) private var clock
     @Query private var items: [Item]
     @Query private var events: [CompletionEvent]
     @AppStorage("todayLayout") private var layout = TodayLayout.byTime
     @State private var editorTarget: EditorTarget?
+    @State private var isShowingSettings = false
 
     var body: some View {
         NavigationStack {
             // Re-evaluates each minute so overdue state and the day itself roll over without a relaunch.
             TimelineView(.everyMinute) { context in
-                list(at: context.date)
+                list(at: clock.now(context.date))
+            }
+            .safeAreaInset(edge: .top) {
+                if store.isTestMode {
+                    TestModeBanner(scenario: store.settings.scenario) { isShowingSettings = true }
+                }
             }
             .navigationTitle("Today")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     layoutMenu
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
+                        .accessibilityIdentifier("today.settingsButton")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Item", systemImage: "plus") { editorTarget = .new }
+                        .accessibilityIdentifier("today.addButton")
                 }
             }
             .sheet(item: $editorTarget) { target in
-                ItemEditorView(item: target.item)
+                ItemEditorView(item: target.item, today: clock.today)
+            }
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView()
             }
         }
-        .relaying(items: items, events: events, through: relay)
+        .relaying(items: items, events: events, through: relay, today: clock.today)
     }
 
     private func list(at date: Date) -> some View {
@@ -88,6 +104,7 @@ struct TodayView: View {
         } label: {
             Label("Layout", systemImage: layout.symbolName)
         }
+        .accessibilityIdentifier("today.layoutMenu")
     }
 
     private var emptyState: some View {
@@ -99,6 +116,7 @@ struct TodayView: View {
             if items.isEmpty {
                 Button("Add Item") { editorTarget = .new }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("today.emptyAddButton")
             }
         }
     }
@@ -125,6 +143,10 @@ private enum EditorTarget: Identifiable {
 
 #Preview {
     TodayView()
-        .modelContainer(PreviewData.container())
-        .environment(WatchRelay.inert)
+        .previewStore()
+}
+
+#Preview("Heavy") {
+    TodayView()
+        .previewStore(.heavy)
 }

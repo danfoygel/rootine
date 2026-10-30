@@ -65,7 +65,7 @@ struct TodayComplicationView: View {
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack {
-                Text("Rootine")
+                Text(glance?.isTestData == true ? "TEST" : "Rootine")
                     .font(.headline)
                     .widgetAccentable()
                 Spacer()
@@ -125,10 +125,11 @@ struct TodayComplicationView: View {
 
     @ViewBuilder private var inline: some View {
         if let glance {
+            let prefix = glance.isTestData == true ? "TEST · " : ""
             if let next = glance.remaining.first {
-                Label("\(glance.remaining.count) left · \(next.name)", systemImage: "checklist")
+                Label("\(prefix)\(glance.remaining.count) left · \(next.name)", systemImage: "checklist")
             } else {
-                Label("All done", systemImage: "checkmark")
+                Label("\(prefix)All done", systemImage: "checkmark")
             }
         } else {
             Label("Rootine", systemImage: "checklist")

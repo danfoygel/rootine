@@ -20,3 +20,6 @@ xcuserdata/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Real-data exports (TESTING.md §6.6): never commit
+Fixtures/Private/
