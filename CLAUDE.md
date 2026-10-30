@@ -1,6 +1,6 @@
 # Rootine
 
-Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Currently a stub: both apps launch and show a placeholder screen; no functionality yet.
+Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app has today's list and to-do quick-add. Sync is CloudKit (SwiftData's private database) plus a WatchConnectivity relay overlay; see `Shared/Sync/` and section 12 of `REQUIREMENTS.md`.
 
 ## Project layout
 
@@ -8,13 +8,15 @@ Personal iPhone app with a companion Apple Watch app. Single developer (Dan), pe
 project.yml          XcodeGen spec — source of truth for the Xcode project
 Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
+Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting)
+RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
 .swiftlint.yml       lint rules
 .swiftformat         format rules
 ```
 
 - **`Rootine.xcodeproj` is generated and git-ignored.** Never edit it (or change settings in Xcode's UI — they are lost on regeneration). Change `project.yml`, then run `xcodegen generate`.
 - Files added or removed on disk are picked up by `xcodegen generate`; run it after adding files.
-- Shared code between the iPhone and Watch apps does not exist yet. When needed, add a `Shared/` directory and list it under `sources:` for both targets in `project.yml`.
+- `Shared/` is listed under `sources:` for both app targets and the test target. SwiftData models must stay CloudKit-compatible: every stored property defaulted or optional, no unique constraints, optional relationships with inverses.
 
 ## Identifiers
 
@@ -27,7 +29,7 @@ RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
 | Swift | 6.0 language mode (strict concurrency), toolchain 6.2.4 |
 | UI | SwiftUI |
 
-Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `project.yml`); there are no plist files to edit.
+Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `project.yml`). Keys with no `INFOPLIST_KEY_` setting (e.g. background modes) go under the target's `info: properties:`, and entitlements under `entitlements: properties:`; XcodeGen writes those `Info.plist` / `.entitlements` files, which are git-ignored. Never edit them by hand.
 
 ## Toolchain (this machine)
 
@@ -36,7 +38,7 @@ Info.plist files are generated from build settings (`INFOPLIST_KEY_*` in `projec
 - `gh` is signed in as `danfoygel`; remote is `github.com/danfoygel/rootine` (private).
 - MCP: the `xcode` server (`xcrun mcpbridge`) exposes Xcode tools (build, diagnostics, previews, etc.). Xcode must be running with Settings → Intelligence → "Allow external agents to use Xcode tools" on, and the connection approved in Xcode. If the server shows 0 tools in a session, approve the dialog in Xcode and start a fresh session.
 - `xcodebuildmcp` CLI and its skill are also installed.
-- Real devices: iPhone 14 ("dan") and Apple Watch Series 8 are paired for device testing. The phone must be connected, unlocked and in Developer Mode to show as available (`xcrun devicectl list devices`).
+- Real devices: iPhone 17 ("Big Green Phone", iOS 26.6) and Apple Watch Series 8 (watchOS 26.6), both registered to the team and in the provisioning profiles. Each must be unlocked and in Developer Mode to show as available (`xcrun devicectl list devices`); Xcode reaches the Watch through the iPhone, which is most reliable with the phone on a cable. A newly connected device needs one build with `-allowProvisioningUpdates -allowProvisioningDeviceRegistration` (the Watch via the `RootineWatch` scheme) to be added to the profiles. If the Watch is re-paired to a new phone, unpair it in Xcode's Devices window and let it reconnect.
 
 ## Commands
 
@@ -53,7 +55,7 @@ xcodebuild -project Rootine.xcodeproj -scheme RootineWatch \
   -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' \
   -derivedDataPath build build | xcbeautify
 
-# Tests (once a test target exists)
+# Unit tests
 xcodebuild -project Rootine.xcodeproj -scheme Rootine \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test | xcbeautify
 
@@ -61,7 +63,7 @@ swiftformat .                          # format
 swiftlint lint                         # lint (should report 0 violations)
 ```
 
-Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. No iPhone+Watch simulator pair exists yet; create one with `xcrun simctl pair <watch-udid> <phone-udid>` when testing watch connectivity in the simulator.
+Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. iPhone 17 Pro and Apple Watch Series 11 (46mm) are paired (`xcrun simctl list pairs`), so WatchConnectivity works between them; install each app on its own simulator. The simulators have no iCloud account, so CloudKit sync itself can only be tested on the real devices.
 
 ## Parallel worktrees
 

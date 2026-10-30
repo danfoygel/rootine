@@ -1,6 +1,8 @@
 included:
   - Rootine
   - RootineWatch
+  - Shared
+  - RootineTests
 excluded:
   - "**/Assets.xcassets"
 disabled_rules:
