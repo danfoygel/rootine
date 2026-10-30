@@ -35,8 +35,12 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-ios_destination="platform=iOS Simulator,name=$sim"
-watch_destination="platform=watchOS Simulator,name=$watch_sim"
+# A simulator is a name, or "id=<UDID>" (CI picks by UDID).
+destination() {
+    if [[ "$2" == id=* ]]; then echo "platform=$1 Simulator,$2"; else echo "platform=$1 Simulator,name=$2"; fi
+}
+ios_destination="$(destination iOS "$sim")"
+watch_destination="$(destination watchOS "$watch_sim")"
 results=build/results
 read -r -a extra_flags <<< "${XCODEBUILD_FLAGS:-}"
 
@@ -78,7 +82,7 @@ for name, f in sorted(files.items(), key=lambda kv: kv[1]["lineCoverage"]):
     print("%5.1f%%  %4d/%-4d  %s" % (f["lineCoverage"] * 100, f["coveredLines"], f["executableLines"], name))
 if total:
     print("%5.1f%%  %4d/%-4d  Shared/ overall" % (covered / total * 100, covered, total))
-'
+' | tee "$results/coverage.txt"
 }
 
 mkdir -p "$results"
