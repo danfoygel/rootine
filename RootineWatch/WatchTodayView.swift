@@ -66,6 +66,9 @@ struct WatchTodayView: View {
                 )
             }
         }
+        .onChange(of: TodayGlance(today, on: day, at: now), initial: true) { _, glance in
+            glance.publish()
+        }
     }
 
     private func addToDo(named text: String) {

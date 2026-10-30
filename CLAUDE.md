@@ -8,7 +8,8 @@ Personal iPhone app with a companion Apple Watch app. Single developer (Dan), pe
 project.yml          XcodeGen spec — source of truth for the Xcode project
 Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
-Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting)
+RootineWatchWidgets/ watchOS WidgetKit extension (complications), embedded in the Watch app
+Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting), Glance/ (today summary for widgets)
 RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
                      (built twice: RootineTests for iOS, RootineWatchTests for watchOS)
 scripts/check.sh     the pre-commit / CI gate (see TESTING.md)
@@ -18,6 +19,7 @@ scripts/check.sh     the pre-commit / CI gate (see TESTING.md)
 
 - **`Rootine.xcodeproj` is generated and git-ignored.** Never edit it (or change settings in Xcode's UI — they are lost on regeneration). Change `project.yml`, then run `xcodegen generate`.
 - Files added or removed on disk are picked up by `xcodegen generate`; run it after adding files.
+- Widget extensions can't see the SwiftData store or relay overlay. The Watch app publishes a `TodayGlance` (`Shared/Glance/`) to the App Group `group.com.danfoygel.rootine` whenever its list changes, and the complications only read that. The extension compiles `Shared/Glance`, `Shared/Scheduling` and `ItemAppearance.swift`, not all of `Shared/`.
 - `Shared/` is listed under `sources:` for both app targets and both test targets. SwiftData models must stay CloudKit-compatible: every stored property defaulted or optional, no unique constraints, optional relationships with inverses.
 
 ## Identifiers
