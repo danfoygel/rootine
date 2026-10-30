@@ -6,7 +6,7 @@ enum ItemKind: String, Codable, CaseIterable, Sendable {
     case counted
 }
 
-/// A value snapshot of an item's scheduling fields, so scheduling logic stays pure and `Sendable`.
+/// A value snapshot of an item, so scheduling and list logic stays pure and `Sendable`.
 struct ItemPlan: Identifiable, Hashable, Sendable {
     var id: UUID
     var name: String
@@ -19,6 +19,9 @@ struct ItemPlan: Identifiable, Hashable, Sendable {
     var dueDay: LocalDay?
     /// Counted items only; 1 for everything else.
     var dailyTarget: Int
+    /// Counted items only: how much one tap adds.
+    var stepSize: Int
+    var category: CategoryRef?
 
     init(
         id: UUID = UUID(),
@@ -28,7 +31,9 @@ struct ItemPlan: Identifiable, Hashable, Sendable {
         timeOfDay: TimeOfDay = .anytime,
         startDay: LocalDay,
         dueDay: LocalDay? = nil,
-        dailyTarget: Int = 1
+        dailyTarget: Int = 1,
+        stepSize: Int = 1,
+        category: CategoryRef? = nil
     ) {
         self.id = id
         self.name = name
@@ -38,10 +43,18 @@ struct ItemPlan: Identifiable, Hashable, Sendable {
         self.startDay = startDay
         self.dueDay = dueDay
         self.dailyTarget = dailyTarget
+        self.stepSize = stepSize
+        self.category = category
     }
 
     /// Progress needed for a day to count as done.
     var target: Int {
         kind == .counted ? max(1, dailyTarget) : 1
     }
+}
+
+struct CategoryRef: Hashable, Sendable {
+    var id: UUID
+    var name: String
+    var sortOrder: Int
 }

@@ -11,7 +11,7 @@ final class Item {
     var name = ""
     var kindRaw = ItemKind.habit.rawValue
     /// SF Symbol name.
-    var symbolName = "checkmark.circle"
+    var symbolName = "star"
     var colorName = "blue"
     var recurrenceData: Data?
     var timeOfDayData: Data?
@@ -75,7 +75,9 @@ final class Item {
             timeOfDay: timeOfDay,
             startDay: startDay,
             dueDay: kind == .oneOff ? dueDay : nil,
-            dailyTarget: dailyTarget
+            dailyTarget: dailyTarget,
+            stepSize: stepSize,
+            category: category.map { CategoryRef(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) }
         )
     }
 }

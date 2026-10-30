@@ -1,6 +1,6 @@
 # Rootine
 
-Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. Both apps still show a placeholder screen; the shared data model and scheduling logic exist and are unit-tested.
+Personal iPhone app with a companion Apple Watch app. Single developer (Dan), personal use only. Requirements are in `REQUIREMENTS.md`. The iPhone app has the Today list and item editor; the Watch app is still a placeholder.
 
 ## Project layout
 
@@ -8,7 +8,7 @@ Personal iPhone app with a companion Apple Watch app. Single developer (Dan), pe
 project.yml          XcodeGen spec — source of truth for the Xcode project
 Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
-Shared/              code compiled into both apps: Model/ (SwiftData) and Scheduling/ (pure, Sendable logic)
+Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting)
 RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
 .swiftlint.yml       lint rules
 .swiftformat         format rules

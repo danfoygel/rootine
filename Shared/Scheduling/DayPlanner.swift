@@ -3,7 +3,8 @@ import Foundation
 /// One item on a day's list.
 struct TodayEntry: Identifiable, Hashable, Sendable {
     var plan: ItemPlan
-    var progress: Int
+    /// Sum of the day's events (never negative). Habits can exceed 1 when checked off on two devices.
+    var total: Int
     /// A one-off to-do whose due day has passed and that has rolled forward.
     var isCarriedOver: Bool = false
 
@@ -13,6 +14,11 @@ struct TodayEntry: Identifiable, Hashable, Sendable {
 
     var target: Int {
         plan.target
+    }
+
+    /// Counted items report their total; habits and one-offs report 0 or 1.
+    var progress: Int {
+        plan.kind == .counted ? total : min(total, 1)
     }
 
     var isDone: Bool {
@@ -44,35 +50,31 @@ struct DayPlanner: Sendable {
 
     func entry(for plan: ItemPlan, on day: LocalDay, ledger: CompletionLedger) -> TodayEntry? {
         guard day >= plan.startDay else { return nil }
-        let total = ledger.total(for: plan.id, on: day)
-        let progress = plan.kind == .counted ? total : min(total, 1)
+        let entry = TodayEntry(plan: plan, total: ledger.total(for: plan.id, on: day))
 
         guard let recurrence = plan.recurrence else {
-            return oneOffEntry(for: plan, on: day, progress: progress, ledger: ledger)
+            return oneOffEntry(entry, on: day, ledger: ledger)
         }
-        guard isDue(plan, recurrence: recurrence, on: day, doneToday: progress >= plan.target, ledger: ledger) else {
+        guard isDue(plan, recurrence: recurrence, on: day, doneToday: entry.isDone, ledger: ledger) else {
             return nil
         }
-        return TodayEntry(plan: plan, progress: progress)
+        return entry
     }
 
     /// Incomplete one-offs roll forward until done; a done one-off stays visible only on the day it was done.
-    private func oneOffEntry(
-        for plan: ItemPlan,
-        on day: LocalDay,
-        progress: Int,
-        ledger: CompletionLedger
-    ) -> TodayEntry? {
-        if progress > 0 {
-            return TodayEntry(plan: plan, progress: progress)
+    private func oneOffEntry(_ entry: TodayEntry, on day: LocalDay, ledger: CompletionLedger) -> TodayEntry? {
+        if entry.isDone {
+            return entry
         }
-        if ledger.isEverCompleted(plan.id) {
+        if ledger.isEverCompleted(entry.id) {
             return nil
         }
-        if let dueDay = plan.dueDay, dueDay > day {
+        if let dueDay = entry.plan.dueDay, dueDay > day {
             return nil
         }
-        return TodayEntry(plan: plan, progress: 0, isCarriedOver: plan.dueDay.map { $0 < day } ?? false)
+        var carried = entry
+        carried.isCarriedOver = entry.plan.dueDay.map { $0 < day } ?? false
+        return carried
     }
 
     private func isDue(
