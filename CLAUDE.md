@@ -10,13 +10,15 @@ Rootine/             iOS app target (SwiftUI)
 RootineWatch/        watchOS app target (SwiftUI), embedded in the iOS app
 Shared/              code compiled into both apps: Model/ (SwiftData), Scheduling/ (pure, Sendable logic), Presentation/ (colors, symbols, formatting)
 RootineTests/        hostless Swift Testing unit tests; Shared/ is compiled straight into the bundle
+                     (built twice: RootineTests for iOS, RootineWatchTests for watchOS)
+scripts/check.sh     the pre-commit / CI gate (see TESTING.md)
 .swiftlint.yml       lint rules
 .swiftformat         format rules
 ```
 
 - **`Rootine.xcodeproj` is generated and git-ignored.** Never edit it (or change settings in Xcode's UI — they are lost on regeneration). Change `project.yml`, then run `xcodegen generate`.
 - Files added or removed on disk are picked up by `xcodegen generate`; run it after adding files.
-- `Shared/` is listed under `sources:` for both app targets and the test target. SwiftData models must stay CloudKit-compatible: every stored property defaulted or optional, no unique constraints, optional relationships with inverses.
+- `Shared/` is listed under `sources:` for both app targets and both test targets. SwiftData models must stay CloudKit-compatible: every stored property defaulted or optional, no unique constraints, optional relationships with inverses.
 
 ## Identifiers
 
@@ -55,12 +57,16 @@ xcodebuild -project Rootine.xcodeproj -scheme RootineWatch \
   -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' \
   -derivedDataPath build build | xcbeautify
 
-# Unit tests
+scripts/check.sh                       # the gate: generate, lint, build both apps, iOS + watchOS unit tests
+scripts/check.sh --fast                # iOS unit tests only
+scripts/check.sh --ui                  # ...plus the iPhone UI smoke suite
+
+# Unit tests directly (the RootineWatch scheme runs the same tests on watchOS)
 xcodebuild -project Rootine.xcodeproj -scheme Rootine \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test | xcbeautify
 
-swiftformat .                          # format
-swiftlint lint                         # lint (should report 0 violations)
+swiftformat --config .swiftformat .    # format (always pass --config; see Parallel worktrees)
+swiftlint lint --strict                # lint (must report 0 violations)
 ```
 
 Build output goes to `build/` (git-ignored). Available simulators: iPhone 17 / 17 Pro / 17 Pro Max / Air / 16 Pro / 16e / 14; Apple Watch Series 11 (42/46mm), Ultra 3, SE 3. iPhone 17 Pro and Apple Watch Series 11 (46mm) are paired (`xcrun simctl list pairs`), so WatchConnectivity works between them; install each app on its own simulator. The simulators have no iCloud account, so CloudKit sync itself can only be tested on the real devices.
@@ -73,11 +79,12 @@ Several git worktrees (under `.claude/worktrees/`) can be worked on at once; eac
 - Build with `-derivedDataPath build` so output stays in that worktree's own `build/`.
 - Simulators and devices are shared, and every worktree installs the same bundle ID. Use a different simulator per worktree (e.g. iPhone 17 Pro in one, iPhone 17 in another); don't run tests on the same simulator from two worktrees at once. Only one worktree at a time can use the paired iPhone 17 Pro / Watch Series 11 (46mm) for WatchConnectivity work; another needs its own pair (`xcrun simctl pair`). Only one build can be on the real iPhone/Watch at a time.
 - The `xcode` MCP server drives whichever Xcode windows are open, and every window is titled "Rootine". Keep only the active worktree open in Xcode; other worktrees build and test with `xcodebuild`.
-- `.swiftformat` excludes `.claude` so `swiftformat .` in the main checkout doesn't touch worktrees; SwiftLint only includes the source directories listed in `.swiftlint.yml`.
+- `.swiftformat` excludes `.claude` so `swiftformat .` in the main checkout doesn't touch worktrees. Inside a worktree, SwiftFormat would pick up the main checkout's config (and so exclude everything), so always run `swiftformat --config .swiftformat .`. SwiftLint only includes the source directories listed in `.swiftlint.yml`.
+- `scripts/check.sh` defaults to iPhone 17 Pro / Watch Series 11 (46mm) in the main checkout and iPhone 17 / Watch Series 11 (42mm) in a worktree; pass `--sim` / `--watch-sim` to use another.
 
 ## Conventions
 
-- Run `swiftformat .` and `swiftlint lint` before committing; keep lint at 0 violations.
+- Run `swiftformat --config .swiftformat .`, then `scripts/check.sh`, before committing; it must pass.
 - Testing strategy, coverage rules and the on-device checklist are in `TESTING.md`; logic changes in `Shared/` ship with tests.
 - Prefer SwiftUI and Swift concurrency (`async`/`await`, actors); the project builds in Swift 6 mode, so fix concurrency warnings rather than suppressing them.
 - Add capabilities/entitlements (HealthKit, notifications, etc.) via `project.yml` (`entitlements:` / `settings:`), not the Xcode UI. The signing team is a paid account, so CloudKit, HealthKit, push, etc. are available; capabilities may still need to be enabled on the App ID.

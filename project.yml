@@ -89,6 +89,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  # The same tests built for watchOS, to catch platform differences in Shared/.
+  RootineWatchTests:
+    type: bundle.unit-test
+    platform: watchOS
+    sources:
+      - RootineTests
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.watchkitapp.tests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Rootine:
     build:
@@ -106,3 +118,7 @@ schemes:
         RootineWatch: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - RootineWatchTests
