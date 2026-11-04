@@ -6,86 +6,150 @@ Status: research notes from November 2026, gathered before any code was written.
 
 | Source | Feasible? | Best path | Effort | Main risk |
 |---|---|---|---|---|
-| **Screen Time** | Partly. No API gives numeric totals. | iOS 26 Shortcuts "Get App & Website Data" → Rootine App Intent (*unverified*), otherwise `DeviceActivityMonitor` threshold events | Medium–High (new extension target) | Threshold callbacks misfire on iOS 26; iPhone only; app names are opaque |
+| **Screen Time** | Yes for per-app minutes, via the Mac or (*unverified*) Shortcuts. No public iPhone API. | iOS 26 Shortcuts "Get App & Website Data" → App Intent; else a Mac helper reading synced iPhone usage from Biome → CloudKit | Low (Shortcuts) / Medium (Mac helper) | Shortcuts output unconfirmed; Mac format undocumented, ~4-week retention, no pickups/notifications |
 | **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
 | **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
 | **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
 
-**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time, after the zero-code Shortcuts check.
+**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time: first the zero-code Shortcuts check, then the Mac helper if per-app history is wanted. The Shortcuts check costs ten minutes and could move Screen Time up the list.
 
 ---
 
 ## 1. Screen Time
 
 ### Verdict
-Partly feasible. No public API gives a third-party app numeric Screen Time totals, and Apple says this is deliberate. Two indirect routes work on Dan's own dev-signed iPhone build:
+**Detailed data is reachable, but not from the iPhone alone.** No public iOS API returns numeric totals, and private frameworks need `com.apple.private.*` entitlements that a team provisioning profile can't grant. There are two ways to get real numbers:
 
-1. **Threshold events.** A `DeviceActivityMonitor` extension is told when usage in a chosen set of apps or categories crosses N minutes. It can record that to the App Group, and Rootine reads it from there.
-2. **Shortcuts.** iOS 26 reportedly added a Screen Time action, "Get App & Website Data", which a personal automation could pass to a Rootine App Intent (*unverified*).
+1. **The Mac (verified by several independent open-source projects).** With *Share Across Devices* on, the iPhone's app-focus events sync through iCloud into the Mac's Biome store. That gives per-app foreground sessions with real bundle IDs and start/end times, kept for about 28 days. A small Rootine macOS helper with Full Disk Access can read them and write daily per-app totals into Rootine's CloudKit database. The iPhone and Watch then get the data through normal sync. **Pickups and notification counts are no longer readable** on macOS 26.3+.
+2. **The iOS 26 Shortcuts action "Get App & Website Data"** (*output unverified*). It exists under a Screen Time heading in Shortcuts 26 and reportedly lists per-app usage for a chosen day, week or month and device. If a daily automation can run it unattended and pass the result to a Rootine App Intent, it's the cheapest route and uses Apple's own numbers. Check this on the phone before building anything.
 
-Exact per-app figures can only be *shown* on the iPhone, inside a sandboxed `DeviceActivityReport` view; the app's own code can't read them. Nothing runs on watchOS.
+The on-phone `DeviceActivityMonitor` threshold approach still works for simple "under X minutes" habits, but it only gives estimates, and it is flaky on iOS 26.
 
-### What's accessible
+### Ranked approaches
 
-| Source | What Rootine gets | Notes |
-|---|---|---|
-| `FamilyControls` `.individual` auth | Permission to use the APIs on Dan's own device | Face ID prompt; iOS/iPadOS/Mac Catalyst only |
-| `FamilyActivityPicker` | Opaque `ApplicationToken` / `ActivityCategoryToken` / `WebDomainToken` values (Codable) | No app names or bundle IDs; display with `Label(token)` |
-| `DeviceActivityMonitor` extension | `intervalDidStart/End` and `eventDidReachThreshold` callbacks | Can write to the App Group (one conflicting report, below). `includesPastActivity` (iOS 17.4+) counts usage from before monitoring started |
-| `DeviceActivityReport` extension | A SwiftUI view the system renders inside Rootine's UI | No network; App Group writes are silently dropped. Apple DTS (June 2026): exfiltration "will be blocked by the sandbox" |
-| `ManagedSettings` | Blocking selected apps (shields) | Could *enforce* "no phone after 10pm" rather than only measure it |
-| Shortcuts "Get App & Website Data" (iOS 26) | Per-app usage, possibly daily totals | *Unverified:* output format, and whether automations can run it without a prompt |
-| HealthKit | Nothing | No Screen Time data type |
-| watchOS | Nothing | Screen Time frameworks aren't available on watchOS |
-| Mac `knowledgeC.db` / Biome | Raw history (needs Full Disk Access) | Curiosity only; unusable from iOS |
+| # | Approach | Data | Granularity / history | Reliability | Effort |
+|---|---|---|---|---|---|
+| 1 | **Shortcuts "Get App & Website Data" → App Intent** | Per-app usage for a day/week/month, per device (*unverified*: output type; whether pickups/notifications are included; whether it prompts) | Whatever Apple's Screen Time shows; history as far back as the action allows | Unknown, but they are Apple's own numbers | Low |
+| 2 | **Mac helper reading Biome `App.InFocus/remote/<device>`** | Per-app foreground intervals: minutes and opens per app, hourly breakdowns, real bundle IDs | Per session; the Mac keeps about 4 weeks, so the helper must archive | Medium: undocumented SEGB/protobuf format that can break with macOS updates; sync lag of minutes to hours; one Aug 2026 report of sync stalling | Medium (2–4 days) |
+| 3 | **`DeviceActivityMonitor` threshold ladder** | Minutes per opaque token or category, inferred from which threshold events fired | Step size (5 min+ recommended); today only | Poor on iOS 26 (phantom/early firings) | Medium–High |
+| 4 | Shortcut: deep-link to Settings → screenshot → OCR → App Intent | Daily total plus top ~3 apps | One screen; no scrolling | Fragile (phone must be unlocked; layout/localisation changes) | Low–Medium |
+| 5 | Report-extension side channel (`notify_set_state` + Darwin notification) | A few numbers a day (sums, pickups) | Coarse | Unsupported; DTS says the sandbox is designed to block this; may be patched | Low to try |
 
-**Entitlement.** `com.apple.developer.family-controls` works for development as soon as the capability is enabled on the paid team, with no Apple approval. Approval is needed only for TestFlight or App Store distribution. Every Screen Time extension needs the entitlement on its own App ID. No relevant Screen Time API changes were found for iOS 26.
+#### 1. Shortcuts action
+- Listed in Apple's "What's new in Shortcuts 26" and 9to5Mac (Dec 2025). It probably shipped with iOS 26.0.
+- A Cult of Mac "Daily Screen Time Report" shortcut built on it lists the most-used apps with times. The action has options for today, yesterday or a specific day/week/month, and for a target device, including Family Sharing devices.
+- **In Rootine:**
+  1. Add a `LogScreenTimeIntent` App Intent that takes a `String` or file.
+  2. Dan sets up a personal automation at 23:55, "Run Immediately": Get App & Website Data → Rootine.
+  3. Rootine parses the result into SwiftData; CloudKit syncs it to the Watch.
+- First check with "Show Result" what the action actually returns.
 
-### How it would work in Rootine
-- **`project.yml`**
-  - Add `com.apple.developer.family-controls: true` to the iOS app's `entitlements: properties:`.
-  - New target `RootineActivityMonitor` (`app-extension`, `NSExtensionPointIdentifier = com.apple.deviceactivity.monitor-extension`, principal class subclassing `DeviceActivityMonitor`). Give it the family-controls entitlement and `group.com.danfoygel.rootine`, and embed it in the iOS app only.
-  - Optional `RootineActivityReport` (ExtensionKit, `com.apple.deviceactivityui.report-extension`) with the same entitlements.
-  - Keep both extensions' sources small: a few files from `Shared/Scheduling`, not all of `Shared/`, because of the 6 MB memory limit.
-- **Setup (iOS app):** call `AuthorizationCenter.shared.requestAuthorization(for: .individual)`. The item editor offers a "Screen Time" trigger that shows `FamilyActivityPicker`. Store the encoded `FamilyActivitySelection` in the App Group keyed by item ID, not in SwiftData/CloudKit, because the tokens are meaningless on the Watch.
-- **Monitoring:** each item gets a daily repeating `DeviceActivitySchedule` (00:00–23:59, or 22:00–23:59 for "no phone after 10pm") with a ladder of `DeviceActivityEvent`s (e.g. 15/30/45/60 min) so progress shows in steps. The extension writes `{itemID, minutesReached, timestamp}` to the App Group. On foreground or day rollover the iOS app turns those records into completions. For example, "under 1h" counts as done if the 60-minute event never fired by end of day. Completions reach the Watch through the existing CloudKit + relay sync and the `TodayGlance`.
-- **Stats screen (iPhone only):** embed `DeviceActivityReport(context, filter:)`, with charts drawn by the extension. The app never sees the numbers.
-- **Shortcuts path:** an App Intent "Log Screen Time (minutes, date)". Dan sets up a personal automation at about 23:50: Get App & Website Data → sum → Rootine. This gives real numbers that also reach the Watch, but its reliability is unverified.
+#### 2. Mac helper (Biome remote stream)
+- **Where the data is:**
+  - Usage files: `~/Library/Biome/streams/restricted/App.InFocus/remote/<device-uuid>/`. These are SEGB v2 files containing protobuf records: bundle ID, gain/loss flag, timestamp.
+  - Device list: `~/Library/Biome/sync/sync.db` → `DevicePeer` (platform 2 = iOS, 4 = macOS).
+  - Readable with Full Disk Access; no private entitlement is needed on macOS.
+- **Projects doing this:**
+  - `nichtlegacy/screentime` (also published as `senss1337/screentime`): v2.0 Oct 2026, launchd every 15 min, vendors CCL's `ccl_segb`.
+  - `runesleo/iphone-usage`: a dependency-free Python script.
+  - `arraypress/swift-app-usage`: Swift 6.2; documents SEGB. It reads only the Mac's own data, but the parser is a good base.
+  - `ActivityWatch/aw-import-screentime`: no license, don't copy.
+  - `tobias-x/screentime-archive`.
+  - A Feb 2026 write-up by Boaz Sobrado.
+  - Reported working on macOS 26.5 and 27.
+- **In Rootine:**
+  - Add a `RootineMac` macOS app target in `project.yml`:
+    - background app with no Dock icon (`LSUIElement`)
+    - **not sandboxed** (Full Disk Access doesn't lift the sandbox)
+    - signed with team ZVU48K8YCD
+    - CloudKit entitlement for `iCloud.com.danfoygel.rootine`
+  - Grant Full Disk Access to that `.app` bundle.
+  - Run it hourly or nightly with `SMAppService.agent` / a LaunchAgent. It parses new segments (with a cursor for the newest one read), sums per day and app, and saves a new CloudKit-compatible `@Model` such as `ScreenTimeAppDay` (date, bundleID, deviceID, seconds, opens, all defaulted) from `Shared/Model`.
+  - The Mac is the only writer, so deduplicating by hand is easy (unique constraints aren't allowed).
+  - If raw `CKRecord`s are preferred, use a separate custom zone and never SwiftData's `com.apple.coredata.cloudkit.zone`.
+- **Quicker prototype:** run `iphone-usage` under launchd and write JSON to iCloud Drive. The iOS app reads it through a security-scoped bookmark and forces the download. This takes about a day but is less reliable.
+- **Gaps:**
+  - No pickups or notifications.
+  - Session stitching is best-effort, so totals can run a bit under Apple's.
+  - Game Mode hides games.
+  - The Mac has to be on.
+  - Full Disk Access grants can silently break after a rebuild or certificate rotation (fix: remove and re-add). Apple said in Oct 2026 that granting FDA will need more explicit user action.
+- **Cross-check:** the Timing app (Expert tier) imports the same synced iPhone data on the Mac, which is useful for comparing numbers. It has no export to other apps (*snippets only*).
 
-### Limitations & risks
-- **Thresholds misfire on iOS 26.** Forum reports (26.2 RC through 26.5.x) say `eventDidReachThreshold` fires immediately or early, and some say callbacks are throttled or dropped. Treat each callback as a hint and sanity-check it, e.g. reject a 60-minute event that arrives a few minutes after the schedule started.
-- **Monitor limits:** 20 monitored activities per app. Schedules must be at least 15 minutes and at most a week (community report). The monitor extension has a 6 MB memory limit and crashes are common.
-- **Callbacks need device use.** Interval callbacks only fire while the device is in use, so end-of-day evaluation must happen lazily in the app.
-- **App Group writes from the monitor are disputed.** One Feb 2026 report says they fail with EPERM; a June 2026 thread says they work. Test early on the device.
-- **Lost authorization:** iOS 26 has been reported to forget the grant, so re-check `authorizationStatus` on launch.
-- **No simulator data:** this needs the real iPhone. Keep the evaluation logic pure in `Shared/Scheduling` so it can be unit-tested.
-- **Opaque tokens:** Rootine can't show app names itself, and selections are per device, so a new phone means re-picking.
-- An undocumented report-extension data leak that Apple called "expected" (Dec 2025) may be patched; don't rely on it.
+#### 3. `DeviceActivityMonitor` threshold ladder (on the phone)
+- **Setup:**
+  - `FamilyControls` `.individual` authorization. The `com.apple.developer.family-controls` entitlement works with development signing, with no Apple approval.
+  - `FamilyActivityPicker` for opaque app, category and web-domain tokens.
+  - A `RootineActivityMonitor` app extension embedded in the iOS app only, with the entitlement and the App Group. Keep its sources tiny because of the 6 MB memory limit.
+- **How it counts:**
+  - Each item gets a daily `DeviceActivitySchedule` plus a ladder of `DeviceActivityEvent`s (e.g. 15/30/45/60 min).
+  - Events are reported by name, so each app token can have its own ladder (`app3.min45`).
+  - The extension writes `{itemID, minutesReached, timestamp}` to the App Group, and the app turns these into completions. For example, "under 1h" counts as done if the 60-minute event never fired.
+  - Prior art: matteing.com uses one-minute "satellite" events; a 2026 dev.to post uses 15-second events, each checked against a stored "never trigger before" time. Jomo's estimate built this way is off by 5–10 minutes.
+- **Limits and risks:**
+  - 20 monitored activities. There's no documented cap on events per activity, and thousands of events is untested.
+  - Phantom or early firings on iOS 26.2–26.5 (forum threads 811305, 812472, 840907). Reports say schedules over about 45 minutes get unreliable. Sanity-check every callback.
+  - Callbacks fire only while the device is in use, so the app must evaluate the end of the day itself.
+  - Disputed reports that monitor writes to the App Group fail with EPERM.
+  - iOS 26 sometimes forgets the authorization.
+  - No simulator data.
+  - Tokens are opaque: `Label(token)` can show the app name on the phone, but the app never gets it as a string.
+- `DeviceActivityReport` can *show* exact per-app charts inside Rootine's iPhone UI, but the app never sees the numbers. `ManagedSettings` shields could *enforce* "no phone after 10pm".
+
+### Dead ends
+- **Private iOS frameworks** (ScreenTimeCore, UsageTracking, Biome, `_DKKnowledgeStore`): need `com.apple.private.*` entitlements that profiles can't grant, and AMFI rejects them. There's no TrollStore-style bypass on iOS 26.
+- **Report extension → App Group, files, network, CloudKit, Keychain:** blocked by the read-only sandbox (DTS threads 817516, 834794).
+- **Host app snapshotting the report view:** it's an out-of-process remote view, and `ImageRenderer` fails on it.
+- **Mac `ScreenTimeAgent/.../com.apple.DeviceActivity` plists:** the richest source (pickups, notifications, web domains), but macOS 26.3+ blocks the folder even with Full Disk Access (one report, `alexjmiller5/screentime-backup`).
+- **Mac `RMAdminStore-*.sqlite`:** now only a device/settings registry, and blocked on 26.3+.
+- **Mac `knowledgeC.db` `/app/usage`:** Mac rows only, and froze on 26.4.1. ScreenTime2CSV and older tools rely on it.
+- **Encrypted Finder backups:** Biome, knowledgeC and RMAdminStore aren't in logical backups; they need a forensic full-filesystem extraction.
+- **privacy.apple.com export:** no evidence it includes Screen Time, which syncs end-to-end encrypted.
+- **CloudKit Web Services server-to-server key:** works with the public database only.
+- **MDM, Configurator, iCloud.com, Family Sharing parent view:** none exposes usage.
+- **HealthKit, notifications, Accessibility, sysdiagnose:** HealthKit has no Screen Time type; iOS has no API to read notifications or another app's UI; sysdiagnose is manual and can't be automated.
+- **watchOS:** no Screen Time frameworks, and Watch usage isn't exposed anywhere.
+- **Commercial apps** (Opal, ScreenZen, one sec, Jomo, Clearspace): they use the same report or monitor APIs, and their numbers are estimates or display-only.
+- **iOS 27:** no new public read API found.
 
 ### Recommendation
-1. **Zero-code check first:** on the iPhone, see what "Get App & Website Data" outputs and whether a time-of-day automation runs it unattended. If both hold, build the App Intent first. It gives the most data for the least code, and the data reaches the Watch.
-2. **Otherwise:** one monitor extension for one item type ("≤ X min in selection Y today"), with a threshold ladder and sanity checks. Confirm App Group writes on the device first.
-3. **Later:** the report extension for an iPhone-only stats view, and shields for "no phone after 10pm".
+1. **Today, about 10 minutes on the iPhone:** run "Get App & Website Data" with "Show Result", then try it in a 23:55 personal automation. If it returns per-app minutes unattended, build the App Intent. That's the least code for Apple's own numbers.
+2. **For per-app history that doesn't depend on Shortcuts:** run the Mac checks below. If iPhone segments are present and fresh, prototype with `runesleo/iphone-usage` → JSON, then build the `RootineMac` helper writing `ScreenTimeAppDay` to CloudKit. Start archiving early, because the Mac only keeps about 4 weeks.
+3. **The threshold ladder** only for real-time on-phone triggers (e.g. a nudge at 45 minutes of social media), not as the data source.
 
 ### Sources
+- https://support.apple.com/en-us/125148 (snippet only); https://9to5mac.com/2025/12/09/ios-26s-shortcuts-app-adds-25-new-actions-heres-everything-new/
+- https://www.cultofmac.com/guide/13-mind-blowing-ios-26-shortcuts-with-apple-intelligence
+- https://matthewcassinelli.com/whats-new-in-shortcuts-for-ios-ipados-macos-watchos-visionos-26/
+- https://github.com/nichtlegacy/screentime (= https://github.com/senss1337/screentime)
+- https://github.com/runesleo/iphone-usage
+- https://github.com/arraypress/swift-app-usage
+- https://github.com/ActivityWatch/aw-import-screentime
+- https://github.com/tobias-x/screentime-archive
+- https://github.com/alexjmiller5/screentime-backup
+- https://boazsobrado.com/blog/2026/02/03/how-i-built-a-personal-screen-time-tracker-for-mac-and-iphone-using-claude/
+- https://gist.github.com/0xdevalias/38cfc92278f85ae89a46f0c156208fd5
+- https://belkasoft.com/biome-forensics-artifacts; https://bebinary4n6.blogspot.com/2026/05/beyond-c-segb-and-biome-forensics-with.html
+- https://www.magnetforensics.com/blog/getting-evidence-from-ios-screen-time-artifacts/
+- https://github.com/FelixKohlhas/ScreenTime2CSV
+- https://timingapp.com/help/screen-time (snippet only)
+- https://www.ghacks.net/2026/10/05/apple-will-require-explicit-user-action-to-grant-full-disk-access-in-macos-citing-ai-agents/
+- https://matteing.com/writing/a-curious-way-to-grab-screen-time-data-on-ios
+- https://dev.to/twillywill/the-ios-screen-time-api-in-2026-what-apples-docs-dont-tell-you-151e
+- https://help.jomo.so/en/article/estimated-screen-time-is-incorrect-how-to-fix-it-mhgq52/
+- https://forum.beeminder.com/t/how-i-track-ios-screentime-automatically/12555
+- https://my-blog-2gj.pages.dev/posts/01_screentime_analytics (screenshot shortcut)
 - https://developer.apple.com/documentation/screentimeapidocumentation
 - https://developer.apple.com/documentation/xcode/configuring-family-controls
-- https://developer.apple.com/documentation/familycontrols/requesting-the-family-controls-entitlement
-- https://developer.apple.com/documentation/familycontrols/authorizationcenter
-- https://developer.apple.com/documentation/familycontrols/familyactivitypicker
-- https://developer.apple.com/documentation/deviceactivity/deviceactivityreport
 - https://developer.apple.com/documentation/deviceactivity/deviceactivitymonitor
-- https://developer.apple.com/documentation/deviceactivity/deviceactivitycenter
-- https://developer.apple.com/documentation/deviceactivity/deviceactivityevent/includespastactivity
-- https://developer.apple.com/forums/thread/834794 (DTS on the report sandbox, June 2026)
-- https://developer.apple.com/forums/thread/835517 (report → host app is one-way)
-- https://developer.apple.com/forums/thread/809823 (data leak "expected"; EPERM report)
-- https://developer.apple.com/forums/thread/797162 (no total-screen-time API)
-- https://developer.apple.com/forums/thread/840907 (early thresholds on iOS 26)
-- https://developer.apple.com/forums/thread/681955, https://developer.apple.com/forums/thread/710915 (monitoring limits)
-- https://developer.apple.com/forums/thread/823431, https://developer.apple.com/forums/thread/735454 (6 MB limit)
-- https://support.apple.com/en-gb/125148, https://9to5mac.com/2025/12/09/ios-26s-shortcuts-app-adds-25-new-actions-heres-everything-new/ (Shortcuts action; snippets only)
-- https://gist.github.com/0xdevalias/38cfc92278f85ae89a46f0c156208fd5 (Mac knowledgeC/Biome notes)
+- https://developer.apple.com/documentation/deviceactivity/deviceactivityreport
+- https://developer.apple.com/forums/thread/834794, /817516 (report sandbox, DTS)
+- https://developer.apple.com/forums/thread/809823 (report leak "expected"; EPERM report)
+- https://developer.apple.com/forums/thread/811305, /812472, /840907 (iOS 26 threshold misfires)
+- https://developer.apple.com/forums/thread/681955 (events-per-activity question, unanswered)
+- https://developer.apple.com/forums/thread/842219 (Biome sync stall, Aug 2026)
+- https://developer.apple.com/forums/thread/108278 (snapshotting out-of-process views)
+- https://newosxbook.com/ent.jl?exec=System%2FLibrary%2FPrivateFrameworks%2FScreenTimeCore.framework%2FScreenTimeAgent&osVer=iOS16 (ScreenTimeAgent's private entitlements)
 
 ---
 
@@ -340,20 +404,26 @@ Skip continuous GPS trails and Watch-side location.
 These answer the open questions above, and none needs code.
 
 **Screen Time**
-1. In Shortcuts, run "Get App & Website Data": what does it output (per-app minutes? a daily total?), and does a time-of-day personal automation run it without asking?
+1. In Shortcuts, run "Get App & Website Data" with "Show Result": what does it output (per-app minutes? categories? pickups?), and does a 23:55 personal automation run it without asking?
+2. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
+   - `sw_vers`; confirm Screen Time → *Share Across Devices* is on, on both iPhone and Mac.
+   - `ls -lt ~/Library/Biome/streams/restricted/App.InFocus/remote/*/ | head`: one UUID folder per device, with recent segment files?
+   - `sqlite3 "file:$HOME/Library/Biome/sync/sync.db?mode=ro&immutable=1" "select device_identifier, model, platform, last_sync_date from DevicePeer"` to find which UUID is the iPhone.
+   - `ls "$(getconf DARWIN_USER_DIR)com.apple.ScreenTimeAgent/Store/Library/com.apple.DeviceActivity"`: expect "Operation not permitted" on 26.3+. If it lists files, pickups and notifications are reachable too.
+   - Optional: run `runesleo/iphone-usage` (`devices`, then `report <id> --days 7`) and compare with Settings → Screen Time on the iPhone.
 
 **ViHealth**
-2. In ViHealth (Profile / third-party services): is Apple Health turned on?
-3. Health → Profile → Apps → ViHealth: which data types are allowed to be written?
-4. Health → Blood Pressure / Blood Oxygen / Heart Rate → Show All Data: are there ViHealth entries? Is it one sample per 4 s, or one per hour or night? Any duplicates?
-5. After a BP reading, does it show up in Health **without opening ViHealth**? How long does it take?
-6. Model labels: O2Ring vs O2Ring S; BP2 vs BP2A vs BP2W.
+3. In ViHealth (Profile / third-party services): is Apple Health turned on?
+4. Health → Profile → Apps → ViHealth: which data types are allowed to be written?
+5. Health → Blood Pressure / Blood Oxygen / Heart Rate → Show All Data: are there ViHealth entries? Is it one sample per 4 s, or one per hour or night? Any duplicates?
+6. After a BP reading, does it show up in Health **without opening ViHealth**? How long does it take?
+7. Model labels: O2Ring vs O2Ring S; BP2 vs BP2A vs BP2W.
 
 **Temtop**
-7. Label or box: "M10+" or "M10+ WIFI"? FCC ID 2ATVW-M10PLUS? Firmware version in the Temtop app?
-8. Is there a Wi-Fi icon or setup step, and is the unit on Wi-Fi now?
-9. With the Temtop app force-quit, does a BLE scanner (LightBlue / nRF Connect) show `M10+_…` with service `…1910`? Subscribe to `…2b10` and check that bytes 30–31 match the CO₂ on screen.
-10. What does the app's export actually produce (format, interval)? How often do readings update on battery vs USB?
+8. Label or box: "M10+" or "M10+ WIFI"? FCC ID 2ATVW-M10PLUS? Firmware version in the Temtop app?
+9. Is there a Wi-Fi icon or setup step, and is the unit on Wi-Fi now?
+10. With the Temtop app force-quit, does a BLE scanner (LightBlue / nRF Connect) show `M10+_…` with service `…1910`? Subscribe to `…2b10` and check that bytes 30–31 match the CO₂ on screen.
+11. What does the app's export actually produce (format, interval)? How often do readings update on battery vs USB?
 
 **Location**
-11. Optional: if a Google Timeline backfill is wanted, export it from Google Maps on the iPhone and keep the JSON.
+12. Optional: if a Google Timeline backfill is wanted, export it from Google Maps on the iPhone and keep the JSON.
