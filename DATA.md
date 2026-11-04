@@ -47,13 +47,17 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   - Apps show their display name. A few show a bundle ID (e.g. `com.nytimes.NYTimes`). Websites show their domain.
   - Below a minute, times are in seconds.
   - Pickups and notification counts don't appear.
-  - **Per-item fields** (from the variable's property menu): **App**, **Website**, **Duration**, **Description**. Description is the `Name (1h 35m)` text form. App holds an app value and Website a domain; presumably only one is set per item. Whether App exposes a bundle ID, and whether Duration comes through as seconds or formatted text, is still to be checked.
+  - **Per-item fields** (from the variable's property menu): **App**, **Website**, **Duration**, **Description**. Description is the `Name (1h 35m)` text form. App holds an app value and Website a domain; presumably only one is set per item.
+    - **Duration is a typed value** (a time measurement), not text: appending it to Notes created one small `.txt` attachment per item. The App Intent should accept it as a number of seconds, with text parsing as a fallback.
+    - Whether App exposes a bundle ID is still to be checked; names are enough to start.
 - **Checked on the device:**
   - Ran unattended from a Time of Day automation ("Run Immediately").
   - Numbers for Yesterday / Big Green Phone matched Settings → Screen Time for that day.
   - Safari's total appears alongside the individual websites, which probably overlap with it.
+  - An `in between` range of 9:00–10:00 AM matched that hour in Settings.
+  - **Still to test:** a 3-iteration version of the hourly loop, writing `HourStart – HourEnd` plus Description to a note, checked against the Settings hourly chart.
 - **In Rootine:**
-  1. Add an App Intent, `LogScreenTimeIntent`, taking a date and a JSON text parameter. The shortcut builds that JSON:
+  1. Add an App Intent, `LogScreenTimeIntent`, taking a JSON text parameter (rows of `{hourStart, hourEnd, app, website, duration}`). Notes is only for testing: iOS doesn't let other apps read it, so the data must reach Rootine through this intent. The shortcut builds that JSON:
      - **Repeat with Each** item, making a **Dictionary** `{app: App, website: Website, duration: Duration}`
      - then a **Text** of `[` … `]` around the combined dictionaries, or **Get Dictionary** output joined with commas.
      - Parse `duration` either as seconds or from the `1h 2m 3s` form, whichever Shortcuts produces. Fall back to parsing `Description` if needed.
@@ -67,6 +71,11 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   4. Rootine stores a CloudKit-compatible `ScreenTimeUsage` model (hourStart, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
   5. Habits like "under 1h of Facebook" are evaluated from these rows.
   6. Real-time nudges during the day would still need the threshold approach (#3), or extra midday automations querying `today at 12:00 AM` → now.
+- **Distributing the shortcut as a file** (so it needn't be built by hand):
+  - iOS imports only **signed** shortcut files. Sign on the Mac with `shortcuts sign --mode anyone --input in.shortcut --output out.shortcut` and AirDrop the result to the iPhone, or share an iCloud link from a device.
+  - Generating the plist needs the new action's internal identifier and parameter keys, which aren't documented. Get them from an existing shortcut's iCloud link: the record JSON includes the unsigned file. Fetching it needs `www.icloud.com` (and probably `icloud-content.com`) allowed in the cloud environment's network settings.
+  - Automations can't be imported; the single 06:00 Time of Day automation is set up by hand.
+  - **Plan:** generate the final shortcut once `LogScreenTimeIntent` exists, since the Notes step is replaced by the Rootine action. Until then, build test versions by hand, most easily in Shortcuts on the Mac, which syncs to the iPhone.
 
 #### 2. Mac helper (Biome remote stream)
 - **Where the data is:**
@@ -428,7 +437,10 @@ Skip continuous GPS trails and Watch-side location.
 These answer the open questions above, and none needs code.
 
 **Screen Time**
-1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended, matches Settings, and has the fields App / Website / Duration / Description. Optional: in a Repeat with Each loop, tap *Repeat Item → App* to see whether it exposes a bundle identifier.
+1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended, matches Settings, has the fields App / Website / Duration / Description, and the `in between` range accepts times. Still to do:
+   - Run a 3-hour version of the hourly loop and compare with Settings' hourly chart.
+   - Optional: in a Repeat with Each loop, tap *Repeat Item → App* to see whether it exposes a bundle identifier.
+   - When the App Intent exists: share the shortcut as an iCloud link, so the importable file can be generated.
 2. Only needed for the Mac fallback. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
    - `sw_vers`; confirm Screen Time → *Share Across Devices* is on, on both iPhone and Mac.
    - `ls -lt ~/Library/Biome/streams/restricted/App.InFocus/remote/*/ | head`: one UUID folder per device, with recent segment files?
