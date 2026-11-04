@@ -6,12 +6,12 @@ Status: research notes from November 2026, gathered before any code was written.
 
 | Source | Feasible? | Best path | Effort | Main risk |
 |---|---|---|---|---|
-| **Screen Time** | Yes for per-app minutes, via the Mac or (*unverified*) Shortcuts. No public iPhone API. | iOS 26 Shortcuts "Get App & Website Data" → App Intent; else a Mac helper reading synced iPhone usage from Biome → CloudKit | Low (Shortcuts) / Medium (Mac helper) | Shortcuts output unconfirmed; Mac format undocumented, ~4-week retention, no pickups/notifications |
+| **Screen Time** | **Yes (verified)**: per-app and per-website durations, no public API needed | iOS 26 Shortcuts "Get App & Website Activity" in a nightly automation → Rootine App Intent (Mac Biome helper as fallback) | Low | Depends on Shortcuts automations staying reliable; no pickups/notifications; no real-time data |
 | **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
 | **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
 | **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
 
-**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time: first the zero-code Shortcuts check, then the Mac helper if per-app history is wanted. The Shortcuts check costs ten minutes and could move Screen Time up the list.
+**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier.
 
 ---
 
@@ -21,7 +21,7 @@ Status: research notes from November 2026, gathered before any code was written.
 **Detailed data is reachable, but not from the iPhone alone.** No public iOS API returns numeric totals, and private frameworks need `com.apple.private.*` entitlements that a team provisioning profile can't grant. There are two ways to get real numbers:
 
 1. **The Mac (verified by several independent open-source projects).** With *Share Across Devices* on, the iPhone's app-focus events sync through iCloud into the Mac's Biome store. That gives per-app foreground sessions with real bundle IDs and start/end times, kept for about 28 days. A small Rootine macOS helper with Full Disk Access can read them and write daily per-app totals into Rootine's CloudKit database. The iPhone and Watch then get the data through normal sync. **Pickups and notification counts are no longer readable** on macOS 26.3+.
-2. **The iOS 26 Shortcuts action "Get App & Website Data"** (*output unverified*). It exists under a Screen Time heading in Shortcuts 26 and reportedly lists per-app usage for a chosen day, week or month and device. If a daily automation can run it unattended and pass the result to a Rootine App Intent, it's the cheapest route and uses Apple's own numbers. Check this on the phone before building anything.
+2. **The iOS 26 Shortcuts action "Get App & Website Activity"**: **verified on Dan's iPhone (iOS 26.6) on 2026-11-04.** A 23:55-style personal Time of Day automation set to "Run Immediately" ran it unattended with no prompt. It returned per-app and per-website durations for Yesterday that match Settings → Screen Time for the same day and device. This is the cheapest route, and it uses Apple's own numbers.
 
 The on-phone `DeviceActivityMonitor` threshold approach still works for simple "under X minutes" habits, but it only gives estimates, and it is flaky on iOS 26.
 
@@ -29,20 +29,35 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 
 | # | Approach | Data | Granularity / history | Reliability | Effort |
 |---|---|---|---|---|---|
-| 1 | **Shortcuts "Get App & Website Data" → App Intent** | Per-app usage for a day/week/month, per device (*unverified*: output type; whether pickups/notifications are included; whether it prompts) | Whatever Apple's Screen Time shows; history as far back as the action allows | Unknown, but they are Apple's own numbers | Low |
+| 1 | **Shortcuts "Get App & Website Activity" → App Intent** (verified) | Per-app and per-website durations, per device; apps, websites or both | Per day (or range); seconds below a minute | Good: ran unattended; matched Settings | Low |
 | 2 | **Mac helper reading Biome `App.InFocus/remote/<device>`** | Per-app foreground intervals: minutes and opens per app, hourly breakdowns, real bundle IDs | Per session; the Mac keeps about 4 weeks, so the helper must archive | Medium: undocumented SEGB/protobuf format that can break with macOS updates; sync lag of minutes to hours; one Aug 2026 report of sync stalling | Medium: modest code (new macOS target, SEGB parser, CloudKit writer), but it must be checked against real data on Dan's Mac |
 | 3 | **`DeviceActivityMonitor` threshold ladder** | Minutes per opaque token or category, inferred from which threshold events fired | Step size (5 min+ recommended); today only | Poor on iOS 26 (phantom/early firings) | Medium–High |
 | 4 | Shortcut: deep-link to Settings → screenshot → OCR → App Intent | Daily total plus top ~3 apps | One screen; no scrolling | Fragile (phone must be unlocked; layout/localisation changes) | Low–Medium |
 | 5 | Report-extension side channel (`notify_set_state` + Darwin notification) | A few numbers a day (sums, pickups) | Coarse | Unsupported; DTS says the sandbox is designed to block this; may be patched | Low to try |
 
-#### 1. Shortcuts action
-- Listed in Apple's "What's new in Shortcuts 26" and 9to5Mac (Dec 2025). It probably shipped with iOS 26.0.
-- A Cult of Mac "Daily Screen Time Report" shortcut built on it lists the most-used apps with times. The action has options for today, yesterday or a specific day/week/month, and for a target device, including Family Sharing devices.
+#### 1. Shortcuts action (verified)
+- **Action:** *Get App & Website Activity* (Screen Time section of Shortcuts, iOS 26).
+- **Parameters:**
+  - Date: Today, Yesterday, or a specific day/range
+  - **Device**: defaults to this iPhone; other devices on the Apple ID can be picked
+  - **Type**: Apps & Websites / Apps / Websites
+  - All can be set to "Ask Each Time"
+- **Output:** a list sorted by time, one entry per app or website. Converted to text, an entry reads `Safari (1h 35m)` or `Calendar (59s)`.
+  - Apps show their display name. A few show a bundle ID (e.g. `com.nytimes.NYTimes`). Websites show their domain.
+  - Below a minute, times are in seconds.
+  - Pickups and notification counts don't appear.
+  - Per-item fields (name, duration, bundle ID, type) are **still to be confirmed** from the variable's property menu.
+- **Checked on the device:**
+  - Ran unattended from a Time of Day automation ("Run Immediately").
+  - Numbers for Yesterday / Big Green Phone matched Settings → Screen Time for that day.
+  - Safari's total appears alongside the individual websites, which probably overlap with it.
 - **In Rootine:**
-  1. Add a `LogScreenTimeIntent` App Intent that takes a `String` or file.
-  2. Dan sets up a personal automation at 23:55, "Run Immediately": Get App & Website Data → Rootine.
-  3. Rootine parses the result into SwiftData; CloudKit syncs it to the Watch.
-- First check with "Show Result" what the action actually returns.
+  1. Add an App Intent, `LogScreenTimeIntent`, taking a day and a list of entries (name, seconds, kind). Field shape to be fixed once the variable's properties are known; the fallback is text parsed from the `Name (1h 2m 3s)` form.
+  2. The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, so Safari isn't counted twice.
+  3. A personal automation at about 23:55 calls the intent for Today, or one in the morning for Yesterday. Morning is safer if the phone may be in use near midnight.
+  4. Rootine stores a CloudKit-compatible `ScreenTimeAppDay` model (date, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
+  5. Habits like "under 1h of Facebook" are evaluated from these rows.
+  6. Real-time nudges during the day would still need the threshold approach (#3) or extra midday automations.
 
 #### 2. Mac helper (Biome remote stream)
 - **Where the data is:**
@@ -113,8 +128,8 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 - **iOS 27:** no new public read API found.
 
 ### Recommendation
-1. **Today, about 10 minutes on the iPhone:** run "Get App & Website Data" with "Show Result", then try it in a 23:55 personal automation. If it returns per-app minutes unattended, build the App Intent. That's the least code for Apple's own numbers.
-2. **For per-app history that doesn't depend on Shortcuts:** run the Mac checks below. If iPhone segments are present and fresh, prototype with `runesleo/iphone-usage` → JSON, then build the `RootineMac` helper writing `ScreenTimeAppDay` to CloudKit. Start archiving early, because the Mac only keeps about 4 weeks.
+1. **Build the Shortcuts route first.** It's verified on the device. Confirm the per-item fields, then write `LogScreenTimeIntent` and the `ScreenTimeAppDay` model.
+2. **Only if Shortcuts proves unreliable over time, or Mac usage is wanted too:** run the Mac checks below. If iPhone segments are present and fresh, prototype with `runesleo/iphone-usage` → JSON, then build the `RootineMac` helper writing `ScreenTimeAppDay` to CloudKit. Start archiving early, because the Mac only keeps about 4 weeks.
 3. **The threshold ladder** only for real-time on-phone triggers (e.g. a nudge at 45 minutes of social media), not as the data source.
 
 ### Sources
@@ -404,8 +419,8 @@ Skip continuous GPS trails and Watch-side location.
 These answer the open questions above, and none needs code.
 
 **Screen Time**
-1. In Shortcuts, run "Get App & Website Data" with "Show Result": what does it output (per-app minutes? categories? pickups?), and does a 23:55 personal automation run it without asking?
-2. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
+1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended and matches Settings. Still to do: screenshot the *Activity* variable's property list (the per-item fields).
+2. Only needed for the Mac fallback. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
    - `sw_vers`; confirm Screen Time → *Share Across Devices* is on, on both iPhone and Mac.
    - `ls -lt ~/Library/Biome/streams/restricted/App.InFocus/remote/*/ | head`: one UUID folder per device, with recent segment files?
    - `sqlite3 "file:$HOME/Library/Biome/sync/sync.db?mode=ro&immutable=1" "select device_identifier, model, platform, last_sync_date from DevicePeer"` to find which UUID is the iPhone.
