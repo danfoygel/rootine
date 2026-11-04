@@ -29,7 +29,7 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 
 | # | Approach | Data | Granularity / history | Reliability | Effort |
 |---|---|---|---|---|---|
-| 1 | **Shortcuts "Get App & Website Activity" → App Intent** (verified) | Per-app and per-website durations, per device; apps, websites or both | Per day (or range); seconds below a minute | Good: ran unattended; matched Settings | Low |
+| 1 | **Shortcuts "Get App & Website Activity" → App Intent** (verified) | Per-app and per-website durations, per device; apps, websites or both | **Per hour** (the in-between range accepts times); seconds below a minute | Good: ran unattended; matched Settings | Low |
 | 2 | **Mac helper reading Biome `App.InFocus/remote/<device>`** | Per-app foreground intervals: minutes and opens per app, hourly breakdowns, real bundle IDs | Per session; the Mac keeps about 4 weeks, so the helper must archive | Medium: undocumented SEGB/protobuf format that can break with macOS updates; sync lag of minutes to hours; one Aug 2026 report of sync stalling | Medium: modest code (new macOS target, SEGB parser, CloudKit writer), but it must be checked against real data on Dan's Mac |
 | 3 | **`DeviceActivityMonitor` threshold ladder** | Minutes per opaque token or category, inferred from which threshold events fired | Step size (5 min+ recommended); today only | Poor on iOS 26 (phantom/early firings) | Medium–High |
 | 4 | Shortcut: deep-link to Settings → screenshot → OCR → App Intent | Daily total plus top ~3 apps | One screen; no scrolling | Fragile (phone must be unlocked; layout/localisation changes) | Low–Medium |
@@ -38,7 +38,8 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 #### 1. Shortcuts action (verified)
 - **Action:** *Get App & Website Activity* (Screen Time section of Shortcuts, iOS 26).
 - **Parameters:**
-  - Date: Today, Yesterday, or a specific day/range
+  - Date: Today / Yesterday / This week / Last week / This month / Specified day / **in between** (start and end)
+    - **In between accepts times**: verified 2026-11-04 with `today at 9:00 AM` to `today at 10:00 AM`, which matched the 9 AM bar in Settings. So **hourly per-app data** is available.
   - **Device**: defaults to this iPhone; other devices on the Apple ID can be picked
   - **Type**: Apps & Websites / Apps / Websites
   - All can be set to "Ask Each Time"
@@ -57,10 +58,15 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
      - then a **Text** of `[` … `]` around the combined dictionaries, or **Get Dictionary** output joined with commas.
      - Parse `duration` either as seconds or from the `1h 2m 3s` form, whichever Shortcuts produces. Fall back to parsing `Description` if needed.
   2. The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, so Safari isn't counted twice.
-  3. A personal automation at about 23:55 calls the intent for Today, or one in the morning for Yesterday. Morning is safer if the phone may be in use near midnight.
-  4. Rootine stores a CloudKit-compatible `ScreenTimeAppDay` model (date, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
+  3. **One** personal automation, at about 06:00, runs a shortcut that loops over yesterday's 24 hours, so no snapshots or diffs are needed:
+     - `Date("yesterday at 12:00 AM")` → `DayStart`
+     - **Repeat 24×:** `HourStart = DayStart + (Repeat Index − 1) h`; `HourEnd = HourStart + 1 h`; *Get App & Website Activity* in between them (Type = Apps, and optionally a second call with Websites); add `{hour, app, website, duration}` rows to a list
+     - finally, one call to the Rootine intent with the list.
+
+     Running it in the morning lets Screen Time catch up on the day. Rows are stored by hour start time, so the days the clocks change (23 or 25 hours) are handled.
+  4. Rootine stores a CloudKit-compatible `ScreenTimeUsage` model (hourStart, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
   5. Habits like "under 1h of Facebook" are evaluated from these rows.
-  6. Real-time nudges during the day would still need the threshold approach (#3) or extra midday automations.
+  6. Real-time nudges during the day would still need the threshold approach (#3), or extra midday automations querying `today at 12:00 AM` → now.
 
 #### 2. Mac helper (Biome remote stream)
 - **Where the data is:**
