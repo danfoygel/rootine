@@ -46,13 +46,16 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   - Apps show their display name. A few show a bundle ID (e.g. `com.nytimes.NYTimes`). Websites show their domain.
   - Below a minute, times are in seconds.
   - Pickups and notification counts don't appear.
-  - Per-item fields (name, duration, bundle ID, type) are **still to be confirmed** from the variable's property menu.
+  - **Per-item fields** (from the variable's property menu): **App**, **Website**, **Duration**, **Description**. Description is the `Name (1h 35m)` text form. App holds an app value and Website a domain; presumably only one is set per item. Whether App exposes a bundle ID, and whether Duration comes through as seconds or formatted text, is still to be checked.
 - **Checked on the device:**
   - Ran unattended from a Time of Day automation ("Run Immediately").
   - Numbers for Yesterday / Big Green Phone matched Settings → Screen Time for that day.
   - Safari's total appears alongside the individual websites, which probably overlap with it.
 - **In Rootine:**
-  1. Add an App Intent, `LogScreenTimeIntent`, taking a day and a list of entries (name, seconds, kind). Field shape to be fixed once the variable's properties are known; the fallback is text parsed from the `Name (1h 2m 3s)` form.
+  1. Add an App Intent, `LogScreenTimeIntent`, taking a date and a JSON text parameter. The shortcut builds that JSON:
+     - **Repeat with Each** item, making a **Dictionary** `{app: App, website: Website, duration: Duration}`
+     - then a **Text** of `[` … `]` around the combined dictionaries, or **Get Dictionary** output joined with commas.
+     - Parse `duration` either as seconds or from the `1h 2m 3s` form, whichever Shortcuts produces. Fall back to parsing `Description` if needed.
   2. The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, so Safari isn't counted twice.
   3. A personal automation at about 23:55 calls the intent for Today, or one in the morning for Yesterday. Morning is safer if the phone may be in use near midnight.
   4. Rootine stores a CloudKit-compatible `ScreenTimeAppDay` model (date, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
@@ -419,7 +422,7 @@ Skip continuous GPS trails and Watch-side location.
 These answer the open questions above, and none needs code.
 
 **Screen Time**
-1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended and matches Settings. Still to do: screenshot the *Activity* variable's property list (the per-item fields).
+1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended, matches Settings, and has the fields App / Website / Duration / Description. Optional: in a Repeat with Each loop, tap *Repeat Item → App* to see whether it exposes a bundle identifier.
 2. Only needed for the Mac fallback. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
    - `sw_vers`; confirm Screen Time → *Share Across Devices* is on, on both iPhone and Mac.
    - `ls -lt ~/Library/Biome/streams/restricted/App.InFocus/remote/*/ | head`: one UUID folder per device, with recent segment files?
