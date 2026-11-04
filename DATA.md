@@ -1,0 +1,359 @@
+# Rootine — External data sources
+
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Nothing here has been built or tested on a device yet. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+
+## Summary
+
+| Source | Feasible? | Best path | Effort | Main risk |
+|---|---|---|---|---|
+| **Screen Time** | Partly. No API gives numeric totals. | iOS 26 Shortcuts "Get App & Website Data" → Rootine App Intent (*unverified*), otherwise `DeviceActivityMonitor` threshold events | Medium–High (new extension target) | Threshold callbacks misfire on iOS 26; iPhone only; app names are opaque |
+| **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
+| **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
+| **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
+
+**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time, after the zero-code Shortcuts check.
+
+---
+
+## 1. Screen Time
+
+### Verdict
+Partly feasible. No public API gives a third-party app numeric Screen Time totals, and Apple says this is deliberate. Two indirect routes work on Dan's own dev-signed iPhone build:
+
+1. **Threshold events.** A `DeviceActivityMonitor` extension is told when usage in a chosen set of apps or categories crosses N minutes. It can record that to the App Group, and Rootine reads it from there.
+2. **Shortcuts.** iOS 26 reportedly added a Screen Time action, "Get App & Website Data", which a personal automation could pass to a Rootine App Intent (*unverified*).
+
+Exact per-app figures can only be *shown* on the iPhone, inside a sandboxed `DeviceActivityReport` view; the app's own code can't read them. Nothing runs on watchOS.
+
+### What's accessible
+
+| Source | What Rootine gets | Notes |
+|---|---|---|
+| `FamilyControls` `.individual` auth | Permission to use the APIs on Dan's own device | Face ID prompt; iOS/iPadOS/Mac Catalyst only |
+| `FamilyActivityPicker` | Opaque `ApplicationToken` / `ActivityCategoryToken` / `WebDomainToken` values (Codable) | No app names or bundle IDs; display with `Label(token)` |
+| `DeviceActivityMonitor` extension | `intervalDidStart/End` and `eventDidReachThreshold` callbacks | Can write to the App Group (one conflicting report, below). `includesPastActivity` (iOS 17.4+) counts usage from before monitoring started |
+| `DeviceActivityReport` extension | A SwiftUI view the system renders inside Rootine's UI | No network; App Group writes are silently dropped. Apple DTS (June 2026): exfiltration "will be blocked by the sandbox" |
+| `ManagedSettings` | Blocking selected apps (shields) | Could *enforce* "no phone after 10pm" rather than only measure it |
+| Shortcuts "Get App & Website Data" (iOS 26) | Per-app usage, possibly daily totals | *Unverified:* output format, and whether automations can run it without a prompt |
+| HealthKit | Nothing | No Screen Time data type |
+| watchOS | Nothing | Screen Time frameworks aren't available on watchOS |
+| Mac `knowledgeC.db` / Biome | Raw history (needs Full Disk Access) | Curiosity only; unusable from iOS |
+
+**Entitlement.** `com.apple.developer.family-controls` works for development as soon as the capability is enabled on the paid team, with no Apple approval. Approval is needed only for TestFlight or App Store distribution. Every Screen Time extension needs the entitlement on its own App ID. No relevant Screen Time API changes were found for iOS 26.
+
+### How it would work in Rootine
+- **`project.yml`**
+  - Add `com.apple.developer.family-controls: true` to the iOS app's `entitlements: properties:`.
+  - New target `RootineActivityMonitor` (`app-extension`, `NSExtensionPointIdentifier = com.apple.deviceactivity.monitor-extension`, principal class subclassing `DeviceActivityMonitor`). Give it the family-controls entitlement and `group.com.danfoygel.rootine`, and embed it in the iOS app only.
+  - Optional `RootineActivityReport` (ExtensionKit, `com.apple.deviceactivityui.report-extension`) with the same entitlements.
+  - Keep both extensions' sources small: a few files from `Shared/Scheduling`, not all of `Shared/`, because of the 6 MB memory limit.
+- **Setup (iOS app):** call `AuthorizationCenter.shared.requestAuthorization(for: .individual)`. The item editor offers a "Screen Time" trigger that shows `FamilyActivityPicker`. Store the encoded `FamilyActivitySelection` in the App Group keyed by item ID, not in SwiftData/CloudKit, because the tokens are meaningless on the Watch.
+- **Monitoring:** each item gets a daily repeating `DeviceActivitySchedule` (00:00–23:59, or 22:00–23:59 for "no phone after 10pm") with a ladder of `DeviceActivityEvent`s (e.g. 15/30/45/60 min) so progress shows in steps. The extension writes `{itemID, minutesReached, timestamp}` to the App Group. On foreground or day rollover the iOS app turns those records into completions. For example, "under 1h" counts as done if the 60-minute event never fired by end of day. Completions reach the Watch through the existing CloudKit + relay sync and the `TodayGlance`.
+- **Stats screen (iPhone only):** embed `DeviceActivityReport(context, filter:)`, with charts drawn by the extension. The app never sees the numbers.
+- **Shortcuts path:** an App Intent "Log Screen Time (minutes, date)". Dan sets up a personal automation at about 23:50: Get App & Website Data → sum → Rootine. This gives real numbers that also reach the Watch, but its reliability is unverified.
+
+### Limitations & risks
+- **Thresholds misfire on iOS 26.** Forum reports (26.2 RC through 26.5.x) say `eventDidReachThreshold` fires immediately or early, and some say callbacks are throttled or dropped. Treat each callback as a hint and sanity-check it, e.g. reject a 60-minute event that arrives a few minutes after the schedule started.
+- **Monitor limits:** 20 monitored activities per app. Schedules must be at least 15 minutes and at most a week (community report). The monitor extension has a 6 MB memory limit and crashes are common.
+- **Callbacks need device use.** Interval callbacks only fire while the device is in use, so end-of-day evaluation must happen lazily in the app.
+- **App Group writes from the monitor are disputed.** One Feb 2026 report says they fail with EPERM; a June 2026 thread says they work. Test early on the device.
+- **Lost authorization:** iOS 26 has been reported to forget the grant, so re-check `authorizationStatus` on launch.
+- **No simulator data:** this needs the real iPhone. Keep the evaluation logic pure in `Shared/Scheduling` so it can be unit-tested.
+- **Opaque tokens:** Rootine can't show app names itself, and selections are per device, so a new phone means re-picking.
+- An undocumented report-extension data leak that Apple called "expected" (Dec 2025) may be patched; don't rely on it.
+
+### Recommendation
+1. **Zero-code check first:** on the iPhone, see what "Get App & Website Data" outputs and whether a time-of-day automation runs it unattended. If both hold, build the App Intent first. It gives the most data for the least code, and the data reaches the Watch.
+2. **Otherwise:** one monitor extension for one item type ("≤ X min in selection Y today"), with a threshold ladder and sanity checks. Confirm App Group writes on the device first.
+3. **Later:** the report extension for an iPhone-only stats view, and shields for "no phone after 10pm".
+
+### Sources
+- https://developer.apple.com/documentation/screentimeapidocumentation
+- https://developer.apple.com/documentation/xcode/configuring-family-controls
+- https://developer.apple.com/documentation/familycontrols/requesting-the-family-controls-entitlement
+- https://developer.apple.com/documentation/familycontrols/authorizationcenter
+- https://developer.apple.com/documentation/familycontrols/familyactivitypicker
+- https://developer.apple.com/documentation/deviceactivity/deviceactivityreport
+- https://developer.apple.com/documentation/deviceactivity/deviceactivitymonitor
+- https://developer.apple.com/documentation/deviceactivity/deviceactivitycenter
+- https://developer.apple.com/documentation/deviceactivity/deviceactivityevent/includespastactivity
+- https://developer.apple.com/forums/thread/834794 (DTS on the report sandbox, June 2026)
+- https://developer.apple.com/forums/thread/835517 (report → host app is one-way)
+- https://developer.apple.com/forums/thread/809823 (data leak "expected"; EPERM report)
+- https://developer.apple.com/forums/thread/797162 (no total-screen-time API)
+- https://developer.apple.com/forums/thread/840907 (early thresholds on iOS 26)
+- https://developer.apple.com/forums/thread/681955, https://developer.apple.com/forums/thread/710915 (monitoring limits)
+- https://developer.apple.com/forums/thread/823431, https://developer.apple.com/forums/thread/735454 (6 MB limit)
+- https://support.apple.com/en-gb/125148, https://9to5mac.com/2025/12/09/ios-26s-shortcuts-app-adds-25-new-actions-heres-everything-new/ (Shortcuts action; snippets only)
+- https://gist.github.com/0xdevalias/38cfc92278f85ae89a46f0c156208fd5 (Mac knowledgeC/Biome notes)
+
+---
+
+## 2. ViHealth: O2 Ring and Checkme BP
+
+### Verdict
+**Read HealthKit rather than talking to the devices directly.** Once Apple Health is turned on in ViHealth's settings, ViHealth writes blood pressure (systolic, diastolic, pulse) and the O2 Ring's SpO2 and heart rate to Health. That is enough for "BP reading taken → item auto-completes" and for an overnight SpO2 summary. Direct Bluetooth is possible, because the protocols are well reverse-engineered, but each device accepts only one connection at a time, so Rootine would compete with ViHealth. Keep it as a fallback in case the HealthKit sync proves unreliable.
+
+### Devices
+- **O2 Ring (original):** older Viatom BLE protocol (service `14839ac4-7d7e-415c-9a42-167340cf2339`, `0xAA` frames). The ring stores recordings at about one sample every 4 s (SpO2, HR, motion). The newer **O2Ring S (T8520)** uses a different "OxyII" protocol (service `E8FB0001-…`, 1 s samples). Check which one Dan has.
+- **Checkme BP family:** BP2 (BP + ECG), BP2A (BP only; one source says it has ECG, so unconfirmed), and BP2W / "BP2 Connect" (Wi-Fi model, advertises as `LP-BP2W`). All use the **same Viatom service UUIDs as the O2 Ring**, not the standard Bluetooth blood-pressure profile. Stores about 50 readings.
+
+### Access paths
+
+| Path | Data | Effort | Reliability |
+|---|---|---|---|
+| **ViHealth → HealthKit** | BP correlation (systolic/diastolic), heart rate, SpO2. No sleep stages seen. Sample detail in Health unconfirmed (one guide says hourly). | Low | Medium. Reviews mention sync breaking after iOS updates, duplicated nights, and BP sync disappearing then returning. Data only arrives when ViHealth syncs with the device. |
+| **ViHealth export** | Per-recording PDF, CSV or binary files via the share sheet | Manual | Fine for analysis, useless for automation |
+| **Viatom cloud** | O2 Ring sessions at 1 s resolution | Medium | No public API. The only tool (O2RingCloudDownloader) logs in with email/password and has no license. Fragile. |
+| **Direct BLE (CoreBluetooth)** | Full-resolution recordings, live readings, BP history | High | Technically good; conflicts with ViHealth |
+| **Third-party bridges** | None found that bridge O2 Ring → Health on iOS | n/a | n/a |
+
+Vendor SDK: viatom-develop on GitHub publishes **Android and HarmonyOS only** (`lepu-blepro` .aar, LepuBle, LepuDemo). **No public iOS SDK was found**; one would have to be requested from Viatom.
+
+### How it would work in Rootine
+1. In `project.yml`, add the HealthKit capability, the `com.apple.developer.healthkit.background-delivery` entitlement, and `INFOPLIST_KEY_NSHealthShareUsageDescription`. These overlap with the section 9 HealthKit work.
+2. Request read access to `.bloodPressureSystolic`, `.bloodPressureDiastolic`, `.heartRate` and `.oxygenSaturation`. You authorize the two BP component types, not the correlation.
+3. At every launch on the iPhone, register an `HKObserverQuery` per type and call `enableBackgroundDelivery(for:frequency: .immediate)`. On each wake, run an `HKAnchoredObjectQuery` (anchor saved locally) for just the new samples, then call the observer's completion handler.
+4. For BP, query `HKCorrelationType(.bloodPressure)` and read the systolic/diastolic values with `objects(for:)`. Optionally filter to ViHealth via `sourceRevision.source.bundleIdentifier`.
+5. A BP sample dated within today completes "take BP reading". For the overnight summary, take SpO2 samples (stored as fractions 0–1) between bedtime and morning and compute min, average and time below 90%.
+6. Do this on the **iPhone only**. The Watch sees completions through the existing CloudKit/WatchConnectivity sync; the Watch's HealthKit store doesn't reliably contain data from phone apps.
+
+### Limitations & risks
+- **Delay is set by ViHealth, not Rootine.** Data reaches HealthKit only after ViHealth connects and syncs, probably when ViHealth is opened (*unverified*). HealthKit also holds back background delivery while the phone is locked.
+- Health-side granularity (per-sample or hourly) and duplication are unknown until Dan looks.
+- **Direct BLE:**
+  - One connection at a time, so Rootine and ViHealth must take turns.
+  - The ring only answers when not being worn or when idle, and powers off about 2 minutes after the last connection.
+  - The protocols are unofficial and firmware-dependent, and the O2Ring S protocol differs from the original ring's.
+  - Background reconnects need `bluetooth-central` plus state restoration. On the Watch it's effectively foreground-only.
+  - The reverse-engineered docs are MIT-licensed, so writing our own Swift client is fine.
+- These are medical devices: Rootine only reads the data and derives nothing clinical from it.
+
+### Recommendation
+Ship HealthKit reading first: BP auto-complete plus an overnight SpO2 summary for the day. Only if the ViHealth→Health sync proves broken or too coarse, build a small on-demand CoreBluetooth reader in the iPhone app, based on farolone's and nglessner's protocol docs and chalimov's BP2 code. Accept that Rootine and ViHealth would take turns on the connection. Skip the cloud route.
+
+### Sources
+- https://apps.apple.com/us/app/vihealth/id1413644737
+- https://getwellue.com/pages/faqs-o2ring
+- https://getwellue.com/blogs/wellue-stories/how-to-set-up-o2ring-app
+- https://www.amazon.com/Checkme-Automatic-Bluetooth-8-7-17-7%CB%9D-Broadcast/dp/B0CTHKJL7J
+- https://checkmecare.com/products/blood-pressure-monitor-bp2-connect
+- https://manualmachine.com/viatom/bp2a/19861406-user-manual
+- https://oxyremote.com/guides/vihealth-not-working-lost-data
+- https://github.com/viatom-develop/LepuDemo, https://github.com/viatom-develop/LepuBle
+- https://github.com/farolone/wellue-o2ring-protocol
+- https://github.com/nglessner/o2ring-s-protocol
+- https://github.com/chalimov/viatom_bp2_ha
+- https://github.com/khromov/wellue-o2ring-web-ui
+- https://github.com/MackeyStingray/o2r
+- https://github.com/ecostech/viatom-ble
+- https://github.com/NavistAuLabs/esphome-viatom-o2ring
+- https://github.com/AJolly/O2RingCloudDownloader
+- https://www.cpaptalk.com/viewtopic.php?p=1459715
+
+(The App Store, getwellue.com and viatomtech.com pages were blocked in the research session; claims from them come from search excerpts.)
+
+---
+
+## 3. Temtop M10+ air quality monitor
+
+### Verdict
+**Feasible.** The M10+ is a Bluetooth LE device, and a community project has reverse-engineered its BLE frame format. You subscribe to one notify characteristic, with no pairing writes or authentication. Rootine can read live PM2.5, CO₂, TVOC, temperature, humidity and AQI directly with **CoreBluetooth**. It has no HomeKit, Matter or Tuya support and no public cloud API. *Caveats:* the protocol was mapped from a single unit, and if Dan has the **Wi-Fi** variant, BLE may switch off once it joins Wi-Fi (*unverified*).
+
+### The device
+- **Measures (6-in-1):** PM2.5 (Temtop laser sensor), CO₂ (Sensirion SCD41, a true NDIR-type sensor), TVOC (Sensirion SGP40, an index-like raw value with unconfirmed units), temperature, humidity, and AQI derived from PM2.5. No HCHO (the old M10/M10i measured formaldehyde) and no confirmed PM10.
+- **Two variants:**
+  - **M10+**: BLE only, FCC ID 2ATVW-M10PLUS, made by Elitech, Amazon B0D1K7GNPM, about 60-day battery. Advertises as `M10+_XXXXXXXX`.
+  - **M10+ WIFI**: Amazon B0GNCPR5WC, E-ink screen. BLE for setup, then 2.4 GHz Wi-Fi to the cloud, sampling every 1/5/10/30 min. A third-party copy of the manual says Bluetooth turns off once Wi-Fi connects.
+- **Companion app:** "Temtop" by Elitech Technology Inc (App Store id1439409326). It shows history and has an export feature; it is not Tuya/Smart Life. Reviews say history is mostly hourly averages, sync is a manual button press, and export is sometimes broken.
+
+### Access paths
+
+| Path | Data | Effort | Reliability |
+|---|---|---|---|
+| **Direct CoreBluetooth** (reverse-engineered frame) | Live PM2.5, CO₂, TVOC, T, RH, AQI + device timestamp; a frame every few seconds while connected | Medium (~150 lines of Swift) | Good in range; unofficial and could break with a firmware update |
+| Temtop app export | History (mostly hourly) as a file; format unconfirmed | Low, but manual | Poor (export reported broken) |
+| Temtop cloud (Wi-Fi model) | Remote history | High: no public API, would mean reverse-engineering the app's HTTPS traffic | Fragile |
+| HomeKit / Matter / Tuya | — | n/a | **Not supported** |
+| Home Assistant bridge (`innonate/temtop-m10-mqtt`, Pi + MQTT) | Same as BLE, around the clock | High: needs a server, and Rootine would need an HA/MQTT client | Good, but it's infrastructure |
+| Manual entry / camera OCR of the display | Whatever Dan enters | Low / Medium | Fine for an occasional check |
+
+**Protocol** (from the MIT-licensed repo, checked on one unit against the display):
+- Service `00010203-0405-0607-0809-0a0b0c0d1910`, notify characteristic `…0a0b0c0d2b10`.
+- 47-byte frames starting with `0xD5`; big-endian uint16 fields at these byte offsets:
+  - 15–16: year; 17–20: month, day, hour, minute
+  - 22: PM2.5 ÷10 (µg/m³); 24: temperature ÷10 (always °C); 26: RH %; 28: AQI; 30: CO₂ ppm; 32: TVOC (raw)
+  - 46: checksum = `(sum(bytes[0..45]) + 0x63) & 0xFF`
+
+### How it would work in Rootine
+- An `AirQualityReader` in `Shared/` (CoreBluetooth works on both iOS and watchOS). It scans for name prefix `M10+_` or the service UUID, connects, subscribes, decodes and checks the checksum, saves one reading, then disconnects.
+- Keep frame decoding as a pure, `Sendable` parser so it can be unit-tested against captured hex frames.
+- `project.yml` needs `INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription`. Background readings would also need `bluetooth-central` under `info: properties: UIBackgroundModes` plus state restoration. Realistically, reading on foreground (plus a "Refresh air" button) is enough.
+- An `AirReading` SwiftData model (all fields defaulted) so CloudKit syncs the history. A habit like "Open windows" could show the latest CO₂ or flag readings above ~1000 ppm.
+
+### Limitations & risks
+- **One BLE client at a time.** While the Temtop app is connected, the monitor stops advertising, and a client killed mid-connection can leave a stale link, so Rootine must disconnect cleanly.
+- Short reliable range (needs about −80 dBm or better), so in practice the phone has to be in the same room.
+- No history unless Rootine is connected; the on-device history protocol hasn't been decoded.
+- One reviewer says CO₂ updates rarely on battery.
+- TVOC units are unknown, and the protocol is unofficial, mapped from one unit, and firmware-dependent.
+- The Wi-Fi variant may turn BLE off after joining Wi-Fi (*unverified*).
+
+### Recommendation
+If the unit is the BLE-only M10+, build a direct CoreBluetooth reader that saves a snapshot on foreground. It needs no server, account or entitlement beyond the Bluetooth permission string. Start with a ~20-line test harness: confirm the UUIDs and offsets against the display and capture a few frames as test fixtures.
+
+If it's the Wi-Fi model and BLE goes quiet, or if Dan wants continuous history, **replace the monitor** rather than reverse-engineering the cloud:
+- **Aranet4**: BLE, well-documented community protocol, built-in history log.
+- **Eve Room** or **Qingping Air Monitor Lite**: HomeKit, read via `HMCharacteristic` with the `com.apple.developer.homekit` entitlement.
+- **Airthings**: BLE plus an official consumer cloud API.
+
+### Sources
+- https://github.com/innonate/temtop-m10-mqtt (README, COMMUNITY_POST.md; last commit 2026-08-06)
+- https://community.home-assistant.io/t/temtop-m10-integration-air-quality-meter/997739
+- https://community.home-assistant.io/t/temtop-s1-ble-integration-for-home-assistant/990603
+- https://github.com/JohnJocoo/hacs-temtop
+- https://cdn.shopify.com/s/files/1/2845/1642/files/Temtop_M10_User_Manual-EN.pdf (M10+ WIFI manual)
+- https://cdn.shopify.com/s/files/1/2845/1642/files/Temtop_M10_User_Manual_V1.3_20240815.pdf (M10+ manual)
+- https://www.amazon.com/Temtop-Detection-Temperature-Humidity-Connectivity/dp/B0D1K7GNPM
+- https://www.amazon.com/Temtop-Smart-Indoor-Quality-Monitor/dp/B0GNCPR5WC
+- https://fcc.report/FCC-ID/2ATVW-M10PLUS/7359660.pdf
+- https://breathesafeair.com/temtop-m10-review/, https://forum.breathesafeair.com/t/temtop-m10-preliminary-thoughts/90
+- https://airqualitynest.com/reviews/temtop-m10-review
+- https://apps.apple.com/us/app/temtop/id1439409326
+
+(Manufacturer pages, manuals and the FCC filing were blocked in the research session; their content came from search summaries. The GitHub repo was cloned and read directly.)
+
+---
+
+## 4. Location history
+
+### Verdict
+**Track it in the app. That is the only option that works as an ongoing source.** No API gives an app bulk access to Apple's Significant Locations. Google Timeline is now stored on the phone with manual export only, and other apps' exports are one-off files. One refinement: in-app tracking is "easiest" only if Rootine records **visits (stays at places)**, not a raw GPS trail. Visits plus the saved places from REQUIREMENTS.md section 5 also cover the arrive/leave reminders and visit-based auto-completion, so it's one feature on one permission.
+
+### Import options
+
+| Source | Access | Use |
+|---|---|---|
+| Apple Significant Locations | None; private to the system. The Journaling Suggestions picker returns single moments the user picks, not bulk data. | — |
+| Google Maps Timeline | No API. Manual export from the Maps app (Settings → Personal content → Export Timeline data) to JSON with `semanticSegments` (visits/activities + `timelinePath`), `rawSignals`, `userLocationProfile`. Takeout no longer covers on-device Timeline; the schema is undocumented and changes. | **Optional one-time backfill:** parse only `visit` segments into `PlaceVisit` with `source = googleImport` |
+| Photos geotags (`PHAsset.location`) | Yes, with photo permission | Sparse; not worth building |
+| HealthKit workout routes (`HKWorkoutRoute`) | Yes | Workouts only |
+| Arc Timeline / other apps | Manual GPX/JSON export | Only if Dan has used one |
+
+### Tracking options on iOS
+
+| API | What you get | Battery | Relaunched after termination? | Fit for Rootine |
+|---|---|---|---|---|
+| Visit monitoring (`startMonitoringVisits`, `CLVisit`) | Arrival/departure times and a coordinate, delivered minutes late | Very low | Yes; the system relaunches the app to deliver visits | **Core of the history.** No async equivalent; Apple confirmed in June 2026 that visits need the delegate API |
+| Significant-change (`startMonitoringSignificantLocationChanges`) | A fix every ~500 m or more, at most every ~5 minutes | Low | Yes, via the `.location` launch key | Backup wake-up; rough path between visits |
+| `CLMonitor` + `CircularGeographicCondition` (iOS 17+) | Enter/exit events for saved places, as an actor with async `events` | Low (system geofencing) | Yes; re-create the monitor by name at launch | **Saved places + arrive/leave reminders.** Cap of ~20 conditions; iOS/macOS only |
+| `CLLocationUpdate.liveUpdates()` + `CLBackgroundActivitySession` | Continuous fixes that pause automatically when stationary | High while moving; shows the location indicator | After system termination, yes, if re-created within seconds. Often doesn't resume after the user swipes the app away. | Not needed (this is what Arc-style trails use) |
+| `UNLocationNotificationTrigger` | A notification on region enter/exit; the app doesn't run | ~0 | N/A (handled by the system) | Fallback with When In Use only; can't check whether the item is already done |
+
+**Authorization (iOS 18+ model):** declare the goal with `CLServiceSession`. Hold `CLServiceSession(authorization: .whenInUse)` first. Then, while in the foreground and the user enables location history, hold `.always`, which shows the "Change to Always Allow" prompt. Always works only while a session is held, so re-create the sessions **immediately** on a background launch. **Precise location** is required, because approximate location (fuzzed to kilometres) makes place matching useless. Check `accuracyLimited` and explain to the user when precision is off.
+
+**Arc / LocoKit** records continuously with Core Location + Core Motion, sleeps at low power while stationary, and relies on significant-change monitoring for relaunch. It replaces `CLVisit` with its own visit detection. LocoKit2 (MPL-2.0, Swift 6) is a useful reference but overkill to adopt.
+
+### Proposed design for Rootine
+- **iPhone only:** a `LocationRecorder` service holding a `CLLocationManager` (visits + significant changes), one `CLMonitor("places")` with a condition per saved place, and the `CLServiceSession`s. It starts at app/scene startup when authorization is already determined, so relaunches resume.
+- **`project.yml`** (Rootine target). `UIBackgroundModes` already has `remote-notification`; visits, significant changes and `CLMonitor` don't need the `location` background mode, so add that only if live update bursts are adopted later.
+  ```yaml
+  settings:
+    base:
+      INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Reminds you when you arrive at or leave your places."
+      INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "Records visits to your places so habits like Gym can complete themselves."
+  ```
+- **Models** (additive, CloudKit-safe):
+  ```swift
+  @Model final class Place {
+      var id = UUID(); var name = ""; var latitude = 0.0
+      var longitude = 0.0; var radius = 150.0; var createdAt = Date()
+  }
+  @Model final class PlaceVisit {
+      var id = UUID(); var arrivedAt = Date(); var departedAt: Date?
+      @Attribute(.allowsCloudEncryption) var latitude = 0.0
+      @Attribute(.allowsCloudEncryption) var longitude = 0.0
+      var horizontalAccuracy = 0.0
+      var placeID: UUID?        // referenced by ID, like CompletionEvent.itemID
+      var sourceRaw = "visit"   // visit | monitor | googleImport
+  }
+  // Item gains: placeID: UUID?, placeTriggerRaw: String? (arrive/leave),
+  //             autoCompleteOnVisit = false, minDwellMinutes = 0
+  ```
+  Only the iPhone writes `PlaceVisit`, so filling in `departedAt` later can't conflict. A visit matches a place if it falls within `radius` plus its accuracy. Unmatched visits can be offered as "Save this place?".
+- **Feeding habits:** when a visit or `CLMonitor` event matches a place, pure place logic in `Shared/Scheduling` decides the action, and a `CompletionEvent` is inserted. The insert is skipped if the item is already done today, so repeated events don't double-complete.
+  - **Auto-complete** (e.g. "Gym") after `minDwellMinutes` at the place.
+  - **Time-at-place counted items** log minutes on departure.
+  - **Arrive/leave reminders** come from `CLMonitor` events: the app wakes, checks the item is still due, and posts an immediate notification. `UNLocationNotificationTrigger` is the fallback with When In Use only.
+
+  The Watch sees the results through the relay and CloudKit as usual.
+- **Volume:** about 5–15 visits/day, roughly 2–5k records and a few MB a year in the private iCloud quota, which is fine. **Don't sync raw points as records.** One forum report had 100k records grow a Core Data store from 22 MB to over 600 MB and use 1.7 GB of iCloud. If a trail is ever wanted, store one record per day with an `.externalStorage` encoded polyline, or use a local-only `ModelConfiguration`.
+
+### Watch
+Not worth it. watchOS has no visit monitoring, no significant-change monitoring and no `CLMonitor`. Its only background location comes from a continuous session (or workout) started in the foreground, which is heavy on battery and ends with the session. A non-cellular Series 8 away from the phone also gets poorer fixes. The iPhone records; the Watch displays results and receives mirrored notifications. (`UNLocationNotificationTrigger` exists on watchOS, but would add to the duplicate-alert problem in section 12.)
+
+### Limitations & risks
+- **iOS 26 regression:** `didVisit` stops firing on some devices after iOS 26.x updates (FB21022960, Nov 2025; no fix found). Mitigations: build "derived" visits from significant-change fixes plus `CLMonitor` exits, record the last visit time, and warn when it goes stale.
+- Visits arrive minutes late and miss short stops (under ~5 min), so they suit history and auto-complete, not live triggers.
+- The ~20 region limit is enough for named places. (The figure is the classic region-monitoring cap; `CLMonitor` docs only expose a limit-exceeded diagnostic.)
+- iOS periodically asks the user to reconfirm Always access. Background App Refresh off or Low Power Mode can delay delivery.
+- `allowsCloudEncryption` must be chosen when an attribute is first added; it's hard to change later. Location history is sensitive, so include "delete history" and a retention setting.
+- Needs real-device testing; the simulators produce no realistic visits.
+
+### Recommendation
+Build it in phases:
+1. Saved places + `CLMonitor` arrive/leave, behind the When In Use → Always flow. This also resolves the **(open)** permission-flow question in REQUIREMENTS.md section 5.
+2. `CLVisit` + significant-change recording into `PlaceVisit`, with auto-complete and minutes-at-place.
+3. Optional one-time Google Timeline JSON import.
+
+Skip continuous GPS trails and Watch-side location.
+
+### Sources
+- https://developer.apple.com/forums/thread/791470
+- https://developer.apple.com/forums/thread/807301
+- https://developer.apple.com/documentation/updates/corelocation
+- https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background
+- https://developer.apple.com/documentation/corelocation/clmonitor-2r51v
+- https://developer.apple.com/documentation/corelocation/cllocationupdate
+- https://developer.apple.com/documentation/corelocation/cllocationmanager/startmonitoringvisits()
+- https://developer.apple.com/documentation/corelocation/cllocationmanager/startmonitoringsignificantlocationchanges()
+- https://developer.apple.com/documentation/usernotifications/unlocationnotificationtrigger
+- https://developer.apple.com/documentation/swiftdata/schema/attribute/option/allowscloudencryption
+- https://developer.apple.com/documentation/watchkit/background-execution
+- https://developer.apple.com/videos/play/wwdc2024/10212/
+- https://developer.apple.com/videos/play/wwdc2023/10147
+- https://developer.apple.com/videos/play/wwdc2019/705/
+- https://developer.apple.com/forums/thread/794100
+- https://developer.apple.com/forums/thread/774955
+- https://developer.apple.com/forums/thread/763142
+- https://github.com/sobri909/LocoKit, https://github.com/sobri909/LocoKit2
+- https://support.google.com/maps/thread/334584618/exporting-local-google-maps-timeline-fails?hl=en
+- https://www.mileagewise.com/help/how-to-import-trips-from-google-maps-timeline-on-ios-devices/
+- https://github.com/kurupted/google-maps-timeline-viewer
+
+(Google `semanticSegments` field names came from search summaries and converter tools; check them against a real iPhone export.)
+
+---
+
+## Things for Dan to check on the devices
+
+These answer the open questions above, and none needs code.
+
+**Screen Time**
+1. In Shortcuts, run "Get App & Website Data": what does it output (per-app minutes? a daily total?), and does a time-of-day personal automation run it without asking?
+
+**ViHealth**
+2. In ViHealth (Profile / third-party services): is Apple Health turned on?
+3. Health → Profile → Apps → ViHealth: which data types are allowed to be written?
+4. Health → Blood Pressure / Blood Oxygen / Heart Rate → Show All Data: are there ViHealth entries? Is it one sample per 4 s, or one per hour or night? Any duplicates?
+5. After a BP reading, does it show up in Health **without opening ViHealth**? How long does it take?
+6. Model labels: O2Ring vs O2Ring S; BP2 vs BP2A vs BP2W.
+
+**Temtop**
+7. Label or box: "M10+" or "M10+ WIFI"? FCC ID 2ATVW-M10PLUS? Firmware version in the Temtop app?
+8. Is there a Wi-Fi icon or setup step, and is the unit on Wi-Fi now?
+9. With the Temtop app force-quit, does a BLE scanner (LightBlue / nRF Connect) show `M10+_…` with service `…1910`? Subscribe to `…2b10` and check that bytes 30–31 match the CO₂ on screen.
+10. What does the app's export actually produce (format, interval)? How often do readings update on battery vs USB?
+
+**Location**
+11. Optional: if a Google Timeline backfill is wanted, export it from Google Maps on the iPhone and keep the JSON.
