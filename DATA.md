@@ -30,7 +30,7 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 | # | Approach | Data | Granularity / history | Reliability | Effort |
 |---|---|---|---|---|---|
 | 1 | **Shortcuts "Get App & Website Data" → App Intent** | Per-app usage for a day/week/month, per device (*unverified*: output type; whether pickups/notifications are included; whether it prompts) | Whatever Apple's Screen Time shows; history as far back as the action allows | Unknown, but they are Apple's own numbers | Low |
-| 2 | **Mac helper reading Biome `App.InFocus/remote/<device>`** | Per-app foreground intervals: minutes and opens per app, hourly breakdowns, real bundle IDs | Per session; the Mac keeps about 4 weeks, so the helper must archive | Medium: undocumented SEGB/protobuf format that can break with macOS updates; sync lag of minutes to hours; one Aug 2026 report of sync stalling | Medium (2–4 days) |
+| 2 | **Mac helper reading Biome `App.InFocus/remote/<device>`** | Per-app foreground intervals: minutes and opens per app, hourly breakdowns, real bundle IDs | Per session; the Mac keeps about 4 weeks, so the helper must archive | Medium: undocumented SEGB/protobuf format that can break with macOS updates; sync lag of minutes to hours; one Aug 2026 report of sync stalling | Medium: modest code (new macOS target, SEGB parser, CloudKit writer), but it must be checked against real data on Dan's Mac |
 | 3 | **`DeviceActivityMonitor` threshold ladder** | Minutes per opaque token or category, inferred from which threshold events fired | Step size (5 min+ recommended); today only | Poor on iOS 26 (phantom/early firings) | Medium–High |
 | 4 | Shortcut: deep-link to Settings → screenshot → OCR → App Intent | Daily total plus top ~3 apps | One screen; no scrolling | Fragile (phone must be unlocked; layout/localisation changes) | Low–Medium |
 | 5 | Report-extension side channel (`notify_set_state` + Darwin notification) | A few numbers a day (sums, pickups) | Coarse | Unsupported; DTS says the sandbox is designed to block this; may be patched | Low to try |
@@ -67,7 +67,7 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   - Run it hourly or nightly with `SMAppService.agent` / a LaunchAgent. It parses new segments (with a cursor for the newest one read), sums per day and app, and saves a new CloudKit-compatible `@Model` such as `ScreenTimeAppDay` (date, bundleID, deviceID, seconds, opens, all defaulted) from `Shared/Model`.
   - The Mac is the only writer, so deduplicating by hand is easy (unique constraints aren't allowed).
   - If raw `CKRecord`s are preferred, use a separate custom zone and never SwiftData's `com.apple.coredata.cloudkit.zone`.
-- **Quicker prototype:** run `iphone-usage` under launchd and write JSON to iCloud Drive. The iOS app reads it through a security-scoped bookmark and forces the download. This takes about a day but is less reliable.
+- **Quicker prototype:** run `iphone-usage` under launchd and write JSON to iCloud Drive. The iOS app reads it through a security-scoped bookmark and forces the download. Less code, but less reliable.
 - **Gaps:**
   - No pickups or notifications.
   - Session stitching is best-effort, so totals can run a bit under Apple's.
