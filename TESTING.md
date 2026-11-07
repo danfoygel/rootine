@@ -19,6 +19,7 @@ Everything here exists unless marked **(planned)**. Section 12 lists what's left
 | Static checks | `swiftformat --lint`, `swiftlint lint --strict`, both schemes building | Mac | `scripts/check.sh`, every PR |
 | iOS unit tests | `RootineTests` (hostless; `Shared/` compiled in), ~400 cases | iPhone simulator | `scripts/check.sh`, every PR |
 | watchOS unit tests | `RootineWatchTests` (same sources, built for watchOS, hostless) | Watch simulator | `scripts/check.sh`, every PR |
+| Performance budgets | `PerformanceTests` (tag `performance`, in both unit test targets; §6.4) | iPhone and Watch simulators | `scripts/check.sh` locally; **not in CI** (§11) |
 | iPhone UI smoke | `RootineUITests` (XCUITest, hosted by `Rootine`), own scheme, 9 flows | iPhone simulator | `scripts/check.sh --ui`, weekly CI, on demand |
 | Device checklist | Section 10 | Big Green Phone + Series 8 Watch | By area touched; full pass before relying on a build day to day |
 
@@ -40,7 +41,7 @@ Options:
 - `--fast` runs only the iOS unit tests;
 - `--sim` / `--watch-sim` choose simulators, by name or as `id=<UDID>`.
 
-`XCODEBUILD_FLAGS` passes extra arguments to xcodebuild (CI uses `CODE_SIGNING_ALLOWED=NO`). Results go to `build/results/*.xcresult`. xcbeautify hides crashes, so on a failure the script lists the failing tests from the result bundle.
+`XCODEBUILD_FLAGS` passes extra arguments to xcodebuild (CI uses `CODE_SIGNING_ALLOWED=NO`). When the `CI` environment variable is set, as GitHub Actions sets it, both unit test runs skip `PerformanceTests` (§11); `CI=1 scripts/check.sh` reproduces a CI run locally. Results go to `build/results/*.xcresult`. xcbeautify hides crashes, so on a failure the script lists the failing tests from the result bundle.
 
 With a warm build, the full gate takes about 30 seconds, and about 3 minutes with `--ui`.
 
@@ -253,7 +254,7 @@ A `Behaviour` covers:
 
 Presets are `.diligent`, `.typical`, `.lapsing` and `.chaotic`.
 
-**Performance budgets** on `heavy` (`PerformanceTests`) take the median of 5 runs. They were measured on the iPhone 17 simulator in October 2026, and each budget is about 3–4× the measurement, with a 2 ms floor:
+**Performance budgets** on `heavy` (`PerformanceTests`) take the median of 5 runs. They were measured on the iPhone 17 simulator in October 2026, and each budget is about 3–4× the measurement, with a 2 ms floor. They are enforced by the local gate only; CI skips them (§11):
 
 | Step | Measured | Budget |
 |---|---|---|
@@ -426,9 +427,10 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - It selects Xcode 26.3, falling back to the newest 26.x with a warning.
 - It installs the Homebrew tools and picks the newest iPhone and Watch simulators by UDID.
 - Then it runs `scripts/check.sh` with `CODE_SIGNING_ALLOWED=NO`. Nothing under test uses CloudKit, so no signing secrets are needed.
+- **Performance budgets don't run in CI.** GitHub sets `CI`, and `check.sh` then skips `PerformanceTests` on iOS and watchOS. The hosted macOS runners are too slow and variable for wall-clock budgets: `TodayData` from the store measured 0.68 s and 1.55 s there against an 80 ms budget (25 ms locally), and the suite took anywhere from 3.5 s to 17 s, against about 1.3 s locally. The local `scripts/check.sh` still enforces them, so run it before pushing a change on the per-minute path.
 
 When it runs:
-- **PRs to `main` and pushes to `main`:** lint, both builds, iOS and watchOS unit tests, and coverage in the job summary.
+- **PRs to `main` and pushes to `main`:** lint, both builds, iOS and watchOS unit tests (without the performance budgets), and coverage in the job summary.
 - **UI smoke suite:** weekly (Mondays 09:00 UTC) and on demand (`workflow_dispatch`, with `ui` on by default), to save the private repo's limited macOS minutes. For PRs that change views, run `scripts/check.sh --ui` locally.
 
 Cost controls:
