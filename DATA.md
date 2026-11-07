@@ -143,24 +143,31 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   - **Still to test:** a 3-iteration version of the hourly loop, writing `HourStart – HourEnd` plus Description to a note, checked against the Settings hourly chart.
 - **In Rootine (built, phase 1):** the `LogScreenTimeIntent` App Intent ("Log Screen Time") and one `Reading` per app and per website per day; see the build plan. Notes is only for testing: iOS doesn't let other apps read it, so the data reaches Rootine through the intent.
   - The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, and passes each to its own parameter, so Safari isn't counted twice.
-  - It runs once a day at about 06:00 for *Yesterday*, which gives Screen Time time to catch up on the day. The earlier plan of an hourly loop (24 calls with `in between` ranges) isn't needed for daily limits and goals.
+  - Each run logs **yesterday and today**: yesterday's totals settle yesterday's items, and today's running totals show in Today rows (e.g. "35m of 1h") and complete goals as soon as they're reached. Automations run it at 06:00 and through the day (see the setup steps). The earlier plan of an hourly loop (24 calls with `in between` ranges) isn't needed for daily limits and goals.
+  - **Limits wait for the day to end.** Screen Time links are saved with `ItemLink.accumulates`, so an `atMost` limit isn't completed while the day is still going (it would tick at 9 am and untick at 3 pm). The first run after midnight settles it from yesterday's final total. Goals (`atLeast`) complete as soon as they're reached. Limits on final values from other sources, such as a wake-up time, don't wait.
+  - Re-runs update readings in place (`replaceReadings` matches metric, subject and start) and only touch records whose value changed, so hourly runs don't delete and re-create every app's record in CloudKit.
   - Each run replaces that day's Screen Time readings, so re-runs are safe, and CloudKit syncs the results to the Watch.
-  - Real-time nudges during the day would still need the threshold approach (#3), or extra midday automations querying `Today`.
+  - Real-time nudges at an exact threshold would still need the threshold approach (#3); the automations below update Rootine every hour or so, and whenever Rootine is opened.
 - **Setting it up on the iPhone** (by hand; the steps for Dan):
   1. Install a build with the intent from Xcode, and open Rootine once so Shortcuts sees its actions. Make sure Settings in Rootine is on **Real data**: in test mode the readings go into test data and are lost on the next reset.
   2. **The shortcut.** Shortcuts → **+**, name it *Rootine Screen Time*, and add:
      1. *Get App & Website Activity*: Date **Yesterday**, Device **this iPhone** (Big Green Phone), Type **Apps**.
      2. A second *Get App & Website Activity*: Date **Yesterday**, same device, Type **Websites**.
      3. Rootine's **Log Screen Time**: tap *Apps* and pick the first action's output (*App & Website Activity*), tap *Websites* and pick the second one's. Leave *Day* empty (yesterday). Check that each field shows the right variable: Shortcuts tends to connect only the most recent output.
-     4. For the first runs only: *Show Result* with the output of Log Screen Time.
-  3. Run it by hand. It should show something like `2026-11-06: 23 apps, 8 websites`. If it fails with "No Screen Time could be read", the activity list didn't arrive as `Name (1h 35m)` text. Then, before step 3, build JSON rows instead: *Repeat with Each* over the Apps output → *Dictionary* with keys `app` (Repeat Item → App), `duration` (Repeat Item → Duration) and `description` (Repeat Item → Description); pass *Repeat Results* to *Apps*. Do the same with `website` for Websites. The intent reads both forms.
-  4. **The automation.** Shortcuts → Automation → **+** → *Time of Day* → **06:00**, *Daily* → **Run Immediately** (and *Notify When Run* off once it works) → *Run Shortcut* → *Rootine Screen Time*. Remove the *Show Result* step once it works, so nothing waits on the screen.
-  5. **Link items.** Edit an item → Data Source → **Screen Time** → App or Website, the name exactly as Screen Time shows it (after the first run, the names it reported are listed to pick from), *At most* or *At least*, and minutes → **Link** → Save. A limit habit such as "Under 1h Instagram" completes the next morning for the day before, as long as the day stayed under the limit; going over leaves it open.
+     4. Steps 1–3 again with Date **Today**, and in the second Log Screen Time set *Day* to **Current Date**.
+     5. For the first runs only: *Show Result* with the output of each Log Screen Time.
+  3. Run it by hand. It should show something like `2026-11-06: 23 apps, 8 websites` and the same for today. If it fails with "No Screen Time could be read", the activity list didn't arrive as `Name (1h 35m)` text. Then build JSON rows instead: *Repeat with Each* over the Apps output → *Dictionary* with keys `app` (Repeat Item → App), `duration` (Repeat Item → Duration) and `description` (Repeat Item → Description); pass *Repeat Results* to *Apps*. Do the same with `website` for Websites. The intent reads both forms.
+  4. **The automations** (Shortcuts → Automation → **+**, each set to **Run Immediately** with *Notify When Run* off once it works, running *Rootine Screen Time*). Remove the *Show Result* steps first, so nothing waits on the screen.
+     - *Time of Day* **06:00**, *Daily*: settles yesterday.
+     - *App* → **Rootine** → *Is Opened*: the numbers are fresh whenever you look.
+     - *App* → the apps you set limits on (e.g. Instagram, Safari) → *Is Closed*: today's total updates right after using them. One automation can list several apps.
+     - Optional, for the Watch and complications when neither of those fires: more *Time of Day* automations through the day (e.g. 10:00, 13:00, 16:00, 19:00, 22:00). Time of Day automations repeat at most daily, so each time is its own automation.
+  5. **Link items.** Edit an item → Data Source → **Add Screen Time** → App or Website, the name exactly as Screen Time shows it (after the first run, the names it reported are listed to pick from), *At most* or *At least*, and minutes → **Link** → Save. During the day the row shows the running total, e.g. "35m of 1h". A goal (*At least*) completes as soon as it's reached. A limit (*At most*) completes after midnight, from the day's final total, if the day stayed under it; going over leaves it open.
   6. To share the shortcut as a file later: Share → *Copy iCloud Link*, and give the link to a session (see below).
 - **Distributing the shortcut as a file** (so it needn't be built by hand):
   - iOS imports only **signed** shortcut files. Sign on the Mac with `shortcuts sign --mode anyone --input in.shortcut --output out.shortcut` and AirDrop the result to the iPhone, or share an iCloud link from a device.
   - Generating the plist needs the new action's internal identifier and parameter keys, which aren't documented. Get them from an existing shortcut's iCloud link: the record JSON includes the unsigned file. Fetching it needs `www.icloud.com` (and probably `icloud-content.com`) allowed in the cloud environment's network settings.
-  - Automations can't be imported; the single 06:00 Time of Day automation is set up by hand.
+  - Automations can't be imported; they're set up by hand (step 4 above).
   - **Plan:** generate the final shortcut once `LogScreenTimeIntent` exists, since the Notes step is replaced by the Rootine action. Until then, build test versions by hand, most easily in Shortcuts on the Mac, which syncs to the iPhone.
 
 #### 2. Mac helper (Biome remote stream)

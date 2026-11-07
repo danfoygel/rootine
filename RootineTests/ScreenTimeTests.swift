@@ -131,6 +131,105 @@ struct ScreenTimeParsingTests {
     }
 }
 
+/// Screen Time logged through the day (hourly automations): limits wait for the day to end, and re-runs update
+/// readings in place.
+@MainActor
+struct SameDayReadingTests {
+    private let limit = ItemLink(metric: .screenTime, subject: "Instagram", rule: .atMost(3600), unit: .seconds,
+                                 accumulates: true)
+    private let goal = ItemLink(metric: .screenTime, subject: "Kindle", rule: .atLeast(1800), unit: .seconds,
+                                accumulates: true)
+
+    private func reading(_ subject: String, _ seconds: Double, on day: LocalDay = fixedToday) -> ReadingValue {
+        ReadingValue(source: .screenTime, metric: .screenTime, subject: subject, day: day, start: day.startDate(),
+                     end: day.adding(days: 1).startDate(), value: seconds)
+    }
+
+    private func linked(_ name: String, _ link: ItemLink) -> ItemPlan {
+        var plan = ItemPlan.habit(name)
+        plan.link = link
+        return plan
+    }
+
+    @Test func anAccumulatingLimitIsOnlyMetOnceTheDayIsOver() {
+        #expect(limit.progress(for: 600, target: 1, dayIsOver: false) == 0)
+        #expect(limit.progress(for: 600, target: 1, dayIsOver: true) == 1)
+        // Goals complete as soon as they're reached.
+        #expect(goal.progress(for: 1800, target: 1, dayIsOver: false) == 1)
+        // A limit on a final value (a wake-up time) doesn't wait.
+        var wake = limit
+        wake.accumulates = nil
+        #expect(wake.progress(for: 600, target: 1, dayIsOver: false) == 1)
+    }
+
+    @Test func theEvaluatorWaitsForTodayButNotForEarlierDays() {
+        let item = linked("Under 1h Instagram", limit)
+        let today = ReadingEvaluator.changes(items: [item], readings: [reading("Instagram", 600)], autoTotals: [:],
+                                             on: fixedToday, today: fixedToday)
+        #expect(today.isEmpty)
+        let yesterday = fixedToday.adding(days: -1)
+        let settled = ReadingEvaluator.changes(
+            items: [item], readings: [reading("Instagram", 600, on: yesterday)], autoTotals: [:], on: yesterday,
+            today: fixedToday
+        )
+        #expect(settled == [item.id: 1])
+    }
+
+    @Test func linksSavedBeforeAccumulatesStillDecode() throws {
+        var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(limit)) as? [String: Any])
+        json["accumulates"] = nil
+        let link = try JSONDecoder().decode(ItemLink.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(link.accumulates == nil)
+        #expect(link.subject == "Instagram")
+    }
+
+    @Test func replacingUpdatesReadingsInPlace() throws {
+        let container = try RootineStore.makeContainer(inMemory: true)
+        let context = container.mainContext
+        let first = Date(timeIntervalSinceReferenceDate: 0)
+        try context.replaceReadings([reading("Instagram", 600), reading("Safari", 60)], from: .screenTime,
+                                    on: fixedToday, now: first)
+        func stored() throws -> [String: Reading] {
+            try Dictionary(uniqueKeysWithValues: context.fetch(FetchDescriptor<Reading>()).map { ($0.subject, $0) })
+        }
+        let before = try stored()
+
+        // An hour later: Instagram grew, Safari is unchanged, Notes is new.
+        let later = first.addingTimeInterval(3600)
+        try context.replaceReadings([reading("Instagram", 900), reading("Safari", 60), reading("Notes", 30)],
+                                    from: .screenTime, on: fixedToday, now: later)
+        let after = try stored()
+        #expect(after["Instagram"]?.id == before["Instagram"]?.id)
+        #expect(after["Instagram"]?.value == 900)
+        #expect(after["Instagram"]?.recordedAt == later)
+        #expect(after["Safari"]?.id == before["Safari"]?.id)
+        #expect(after["Safari"]?.recordedAt == first)
+        #expect(after["Notes"]?.value == 30)
+
+        // A run without Safari removes it.
+        try context.replaceReadings([reading("Instagram", 900)], from: .screenTime, on: fixedToday, now: later)
+        #expect(try stored().keys.sorted() == ["Instagram"])
+    }
+
+    @Test func aLimitLoggedDuringTheDaySettlesWithTheNextMorningsRun() throws {
+        let container = try RootineStore.makeContainer(inMemory: true)
+        let context = container.mainContext
+        let item = Item(name: "Under 1h Instagram", kind: .habit, startDay: day(10, 1))
+        item.link = limit
+        context.insert(item)
+        func isDone() throws -> Bool {
+            let events = try context.fetch(FetchDescriptor<CompletionEvent>()).compactMap(\.record)
+            return DayPlanner().entry(for: item.plan, on: fixedToday, ledger: CompletionLedger(events))?.isDone == true
+        }
+        let noon = fixedToday.startDate().addingTimeInterval(12 * 3600)
+        try context.replaceReadings([reading("Instagram", 600)], from: .screenTime, on: fixedToday, now: noon)
+        #expect(try !isDone())
+        let nextMorning = fixedToday.adding(days: 1).startDate().addingTimeInterval(6 * 3600)
+        try context.replaceReadings([reading("Instagram", 2400)], from: .screenTime, on: fixedToday, now: nextMorning)
+        #expect(try isDone())
+    }
+}
+
 #if os(iOS)
     /// `LogScreenTimeIntent` end to end against an in-memory store.
     @MainActor
@@ -232,6 +331,38 @@ struct ScreenTimeParsingTests {
             intent.apps = nil
             await #expect(throws: LogScreenTimeError.self) { try await intent.perform() }
             #expect(try readings(in: store).map(\.value) == [3000])
+        }
+
+        @Test func todaysRunsTrackProgressWithoutClosingLimits() async throws {
+            let store = try makeStore()
+            let instagram = insertLinked(
+                "Under 1h Instagram",
+                ItemLink(metric: .screenTime, subject: "Instagram", rule: .atMost(3600), unit: .seconds,
+                         accumulates: true),
+                into: store
+            )
+            let kindle = insertLinked(
+                "Read 30m on Kindle",
+                ItemLink(metric: .screenTime, subject: "Kindle", rule: .atLeast(1800), unit: .seconds,
+                         accumulates: true),
+                into: store
+            )
+            let intent = LogScreenTimeIntent()
+            intent.store = store
+            intent.day = store.clock.now()
+            intent.apps = "Instagram (35m)\nKindle (10m)"
+            _ = try await intent.perform()
+            #expect(try !isDone(instagram, on: fixedToday, in: store))
+            #expect(try !isDone(kindle, on: fixedToday, in: store))
+            let todays = try readings(in: store)
+            #expect(todays.allSatisfy { $0.day == fixedToday })
+            let entry = DayPlanner().entry(for: instagram.plan, on: fixedToday, ledger: CompletionLedger([]))
+            #expect(entry?.readingLabel(from: todays, on: fixedToday) == "35m of 1h")
+
+            intent.apps = "Instagram (50m)\nKindle (31m)"
+            _ = try await intent.perform()
+            #expect(try !isDone(instagram, on: fixedToday, in: store))
+            #expect(try isDone(kindle, on: fixedToday, in: store))
         }
 
         @Test func summary() {

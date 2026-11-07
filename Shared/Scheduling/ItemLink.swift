@@ -61,6 +61,10 @@ struct ItemLink: Hashable, Codable, Sendable {
     var rule: Rule
     var combine = Combine.sum
     var unit = Unit.count
+    /// The day's value only grows as the day goes on (Screen Time logged during the day). An `atMost` limit
+    /// can then only be met once the day is over: until then the item stays open and its row shows the
+    /// running value. `nil` in links saved before this existed.
+    var accumulates: Bool?
 
     /// Whether `reading` feeds this link.
     func matches(_ reading: ReadingValue) -> Bool {
@@ -79,11 +83,12 @@ struct ItemLink: Hashable, Codable, Sendable {
         }
     }
 
-    /// The progress a value implies for an item with this target.
-    func progress(for value: Double, target: Int) -> Int {
+    /// The progress a value implies for an item with this target. `dayIsOver` is false while the day is
+    /// still going, when an accumulating limit can't be met yet.
+    func progress(for value: Double, target: Int, dayIsOver: Bool = true) -> Int {
         switch rule {
         case let .atLeast(threshold): value >= threshold ? target : 0
-        case let .atMost(threshold): value <= threshold ? target : 0
+        case let .atMost(threshold): value <= threshold && (dayIsOver || accumulates != true) ? target : 0
         case let .counts(per): per > 0 ? Int((value / per).rounded(.down)) : 0
         }
     }
@@ -131,18 +136,21 @@ struct ItemLink: Hashable, Codable, Sendable {
 /// applying it again does nothing, and a manual undo of an automatic completion stays undone.
 enum ReadingEvaluator {
     /// Per item, the amount to record as an automatic event on `day`. Items whose day has no matching readings
-    /// are left alone.
+    /// are left alone. `day` counts as over once it is before `today`; `nil` treats it as over.
     static func changes(
         items: [ItemPlan],
         readings: [ReadingValue],
         autoTotals: [UUID: Int],
-        on day: LocalDay
+        on day: LocalDay,
+        today: LocalDay? = nil
     ) -> [UUID: Int] {
         let todays = readings.filter { $0.day == day }
+        let dayIsOver = today.map { day < $0 } ?? true
         var changes: [UUID: Int] = [:]
         for item in items {
             guard let link = item.link, let value = link.value(from: todays) else { continue }
-            let change = link.progress(for: value, target: item.target) - autoTotals[item.id, default: 0]
+            let change = link.progress(for: value, target: item.target, dayIsOver: dayIsOver)
+                - autoTotals[item.id, default: 0]
             if change != 0 {
                 changes[item.id] = change
             }

@@ -100,9 +100,9 @@ struct ScreenTimeLinkEditor: View {
                 }
             } footer: {
                 let rule = goal == .limit
-                    ? "A limit habit: done while the day stays at or under the limit."
-                    : "Done once the day reaches the goal."
-                Text("\(rule) Screen Time comes in the next morning, so the item completes for the day before.")
+                    ? "A limit habit: done after midnight if the day stayed at or under the limit."
+                    : "Done as soon as the day reaches the goal."
+                Text("\(rule) During the day, the row shows the running total from the Screen Time shortcut.")
             }
         }
         .navigationTitle("Screen Time")
@@ -139,7 +139,9 @@ struct ScreenTimeLinkEditor: View {
             metric: kind.metric,
             subject: trimmedName,
             rule: goal == .limit ? .atMost(seconds) : .atLeast(seconds),
-            unit: .seconds
+            unit: .seconds,
+            // Logged through the day: a limit is only met once the day is over.
+            accumulates: true
         )
     }
 }
