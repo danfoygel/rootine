@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. None of the sources is built yet except wake and bed times (section 5); the shared readings core is built too (see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Location (phase 3a), wake and bed times (section 5) and the shared readings core are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -19,7 +19,7 @@ Status: research notes from November 2026, gathered before any code was written.
 
 ## Build plan
 
-Status: November 2026. Phase 0 and wake/bed times (section 5) are built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
+Status: November 2026. Phases 0 and 3a and wake/bed times (section 5) are built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
 
 **Working in parallel without conflicts:**
 - Each source lives in its own files: `Shared/Sources/<Source>/` for pure parsing and aggregation (its `ReadingSource` and `ReadingMetric` constants are declared there as `extension ReadingSource { static let … }`), the shell in `Rootine/Sources/<Source>/`, and tests in `RootineTests/<Source>Tests.swift`.
@@ -71,10 +71,29 @@ Needs device checks 3–7 first (whether ViHealth writes to Health at all, and h
 
 ### Phase 3: location, saved places and visits
 
-- 3a **Places + visits → auto-complete:** `Place` and `PlaceVisit` models (section 4 design, with `allowsCloudEncryption` on coordinates from the start), the When In Use → Always flow, `CLMonitor` per place plus `CLVisit` and significant-change monitoring, a places editor with a map pin and radius, "Save this place?" for unmatched visits, and delete-history and retention settings. Each visit becomes a `Reading` (`metric = minutesAtPlace`, `subject = placeID`), so "Gym" and time-at-place items go through the shared evaluator.
-- 3b **Arrive/leave reminders** need the v1 notification work (`REQUIREMENTS.md` §5) and so come after it.
-- 3c *(optional)* the one-time Google Timeline import.
-- Done: a week of real visits on the iPhone, with a gym habit completing on its own. Track the stale-`didVisit` warning (iOS 26 regression).
+- 3a **Places + visits → auto-complete (built).**
+  - **Schema V3** (additive): `Place` (name, coordinate, radius) and `PlaceVisit` (arrival, departure, coordinate, accuracy, `placeID`, source `visit`/`monitor`), with `allowsCloudEncryption` on both models' coordinates. V2 is frozen in `RootineSchema.swift`, and `MigrationTests` opens a V2 store under V3.
+  - **Pure logic** in `Shared/Sources/Location/`:
+    - `PlaceMatcher`: a fix matches the nearest place within radius plus accuracy; fixes vaguer than 500 m (approximate location) match nothing.
+    - `VisitLog`: merges every report of one stay into a single visit. That covers a `CLVisit`'s arrival-only and complete forms, `CLMonitor` enter/exit, repeats, and a brief exit and return. A departure fills in the open visit, and arriving anywhere closes any other open visit. An open visit counts for at most 12 h, so a lost exit can't run on.
+    - `VisitReadings`: one `Reading` per visit (same ID): `minutesAtPlace`, `subject` = place ID, on the day the stay began, nothing under the 5-minute minimum dwell. Open visits count minutes so far.
+    - `PlaceSuggestions` clusters unmatched stays of at least 20 minutes, two or more within 150 m, into "Save this place?".
+    - `LocationHistory` handles retention cut-offs (whole days) and the stale-visit check.
+    - Store actions: `recordVisitEvent`, `refreshOpenVisits`, `rematchVisits`, `deletePlace`, `deleteVisits`, `deleteLocationHistory`, `pruneLocationHistory`. Each replaces the visit's reading and calls `addReadings`, so repeats never double-complete.
+  - **`LocationRecorder`** (iPhone, `Rootine/Sources/Location/`) starts in `RootineApp.init`, so background relaunches resume:
+    - a When In Use `CLServiceSession` once authorization is decided, and an Always session while history is on;
+    - `startMonitoringVisits`, plus significant-change monitoring as a wake-up (no raw fixes stored);
+    - one `CLMonitor("places")` with a circular condition per place (first 20).
+    - It also tracks precise location and saves the last `didVisit` time. Places warns when visits have been missing for 3 days with history on (the iOS 26 regression).
+    - Everything goes to the active store, which is the test store in test mode, and completions are relayed to the Watch.
+  - **UI:**
+    - Settings → Places: the place list; add or edit with a map pin (the map's centre) and a radius from 50 to 1,000 m (default 150 m); delete; "Save this place?" suggestions ("Not Now" deletes those visits).
+    - Location history: Record Visits on/off, Keep History (30/90 days, 1 year, forever; default 1 year), delete history.
+    - The item editor's Data Source section now always shows. Its Place row opens a link editor: a place, then **Visit** (`atLeast` N minutes, `combine: .max`, so one long-enough stay) or **Minutes There** (`counts(per:)`, summed over the day's visits).
+  - Settings decided here (REQUIREMENTS.md §5, open questions): default radius 150 m; the permission flow is When In Use first, then Always when Record Visits is turned on.
+- 3b **Arrive/leave reminders** need the v1 notification work (`REQUIREMENTS.md` §5) and so come after it. `CLMonitor` events already reach `LocationRecorder`, so this adds the notification on top.
+- 3c *(optional)* the one-time Google Timeline import (a new `VisitSource`).
+- Done: a week of real visits on the iPhone, with a gym habit completing on its own, and the stale-visit warning tracked (`TESTING.md` §10.10).
 
 ### Phase 4: Temtop air quality
 
@@ -838,7 +857,7 @@ These answer the open questions above, and none needs code.
 14. With a test automation that appends the time to a note: stop the alarm on the **Watch**, then on another day on the **iPhone**. Did each one log? On a day with the alarm skipped, did anything fire?
 15. Settings → Focus → Sleep: is there a *Focus Filters* section?
 
-With the intent built, 13 and 14 can use the real automations from section 5 ("Setting up the automations") in test mode instead of a note; see `TESTING.md` §10.10.
+With the intent built, 13 and 14 can use the real automations from section 5 ("Setting up the automations") in test mode instead of a note; see `TESTING.md` §10.11.
 
 **Time in Daylight**
 16. Health → Time in Daylight → Show All Data: how long is each sample, is the Watch the source, and does a sample show lux?
