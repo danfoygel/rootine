@@ -5,6 +5,8 @@ struct TodayRow: View {
     let entry: TodayEntry
     let item: ItemSnapshot
     let isOverdue: Bool
+    /// The linked reading's label, e.g. "52m of 1h".
+    var reading: String?
     let record: (Int) -> Void
     /// `nil` for an item relayed from the Watch that hasn't reached this device's store yet.
     let edit: (() -> Void)?
@@ -68,7 +70,7 @@ struct TodayRow: View {
                     .foregroundStyle(entry.isDone ? .secondary : .primary)
                     .strikethrough(entry.isDone && !isCounted)
                     .lineLimit(1)
-                if let detail = entry.detail(unit: item.unit, isOverdue: isOverdue) {
+                if let detail = entry.detail(unit: item.unit, isOverdue: isOverdue, reading: reading) {
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(isOverdue ? .red : .secondary)

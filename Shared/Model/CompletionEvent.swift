@@ -14,15 +14,33 @@ final class CompletionEvent {
     var dayKey = 0
     var amount = 0
     var recordedAt = Date()
+    var originRaw = CompletionOrigin.manual.rawValue
 
-    init(itemID: UUID, day: LocalDay, amount: Int, recordedAt: Date = .now) {
+    init(
+        itemID: UUID,
+        day: LocalDay,
+        amount: Int,
+        recordedAt: Date = .now,
+        origin: CompletionOrigin = .manual
+    ) {
         self.itemID = itemID
         dayKey = day.key
         self.amount = amount
         self.recordedAt = recordedAt
+        originRaw = origin.rawValue
+    }
+
+    var origin: CompletionOrigin {
+        CompletionOrigin(rawValue: originRaw) ?? .manual
     }
 
     var record: CompletionRecord? {
         LocalDay(key: dayKey).map { CompletionRecord(id: id, itemID: itemID, day: $0, amount: amount) }
     }
+}
+
+/// Who recorded an event: Dan, or a reading (DATA.md build plan). Only automatic events are adjusted by readings.
+enum CompletionOrigin: String, Codable, Sendable {
+    case manual
+    case auto
 }

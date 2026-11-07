@@ -24,6 +24,7 @@ final class Item {
     /// Bumped on every edit; decides which copy wins when a relayed snapshot meets the stored item.
     var modifiedAt = Date()
     var category: ItemCategory?
+    var linkData: Data?
 
     init(
         name: String,
@@ -58,6 +59,11 @@ final class Item {
         set { timeOfDayData = try? JSONEncoder().encode(newValue) }
     }
 
+    var link: ItemLink? {
+        get { linkData.flatMap { try? JSONDecoder().decode(ItemLink.self, from: $0) } }
+        set { linkData = newValue.flatMap { try? JSONEncoder().encode($0) } }
+    }
+
     var startDay: LocalDay {
         get { LocalDay(key: startDayKey) ?? LocalDay(createdAt) }
         set { startDayKey = newValue.key }
@@ -79,7 +85,8 @@ final class Item {
             dueDay: kind == .oneOff ? dueDay : nil,
             dailyTarget: dailyTarget,
             stepSize: stepSize,
-            category: category.map { CategoryRef(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) }
+            category: category.map { CategoryRef(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) },
+            link: link
         )
     }
 }

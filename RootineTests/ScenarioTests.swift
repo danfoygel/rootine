@@ -47,8 +47,11 @@ struct ScenarioShapeTests {
         let events = try context.fetch(FetchDescriptor<CompletionEvent>())
         #expect(items.map(\.snapshot).sorted { $0.id.uuidString < $1.id.uuidString }
             == data.items.sorted { $0.id.uuidString < $1.id.uuidString })
-        #expect(Set(events.compactMap(\.record)) == Set(data.records))
-        #expect(Set(events.map(\.recordedAt)) == Set(data.events.map(\.recordedAt)))
+        // Automatic events come from the scenario's readings, so only manual ones match the scenario's events.
+        let manual = events.filter { $0.origin == .manual }
+        #expect(Set(manual.compactMap(\.record)) == Set(data.records))
+        #expect(Set(manual.map(\.recordedAt)) == Set(data.events.map(\.recordedAt)))
+        #expect(try context.fetchCount(FetchDescriptor<Reading>()) == data.readings.count)
         #expect(try context.fetchCount(FetchDescriptor<ItemCategory>()) == data.categories.count)
     }
 

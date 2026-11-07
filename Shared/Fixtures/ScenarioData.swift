@@ -8,6 +8,32 @@ struct ScenarioData: Codable, Equatable, Sendable {
     var events: [ScenarioEvent] = []
     /// What the other device has relayed, for overlay scenarios.
     var relay = RelayState()
+    /// Readings for linked items. Loading a scenario turns them into automatic events.
+    var readings: [ReadingValue] = []
+
+    init(
+        categories: [CategoryRef] = [],
+        items: [ItemSnapshot] = [],
+        events: [ScenarioEvent] = [],
+        relay: RelayState = RelayState(),
+        readings: [ReadingValue] = []
+    ) {
+        self.categories = categories
+        self.items = items
+        self.events = events
+        self.relay = relay
+        self.readings = readings
+    }
+
+    /// Exports from builds before readings have no `readings` key.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        categories = try container.decode([CategoryRef].self, forKey: .categories)
+        items = try container.decode([ItemSnapshot].self, forKey: .items)
+        events = try container.decode([ScenarioEvent].self, forKey: .events)
+        relay = try container.decode(RelayState.self, forKey: .relay)
+        readings = try container.decodeIfPresent([ReadingValue].self, forKey: .readings) ?? []
+    }
 
     var records: [CompletionRecord] {
         events.map(\.record)
@@ -25,6 +51,8 @@ struct ScenarioData: Codable, Equatable, Sendable {
 struct ScenarioEvent: Codable, Hashable, Sendable {
     var record: CompletionRecord
     var recordedAt: Date
+    /// `nil` (manual) in exports from builds before readings.
+    var origin: CompletionOrigin?
 }
 
 enum ScenarioLoadError: Error, Equatable {
@@ -51,12 +79,18 @@ extension ModelContext {
                 itemID: event.record.itemID,
                 day: event.record.day,
                 amount: event.record.amount,
-                recordedAt: event.recordedAt
+                recordedAt: event.recordedAt,
+                origin: event.origin ?? .manual
             )
             model.id = event.record.id
             insert(model)
         }
+        try addReadings(data.readings, now: Self.scenarioReadingDate(data.readings))
         try save()
+    }
+
+    private static func scenarioReadingDate(_ readings: [ReadingValue]) -> Date {
+        readings.map { $0.end ?? $0.start }.max() ?? .now
     }
 
     static func checkCanLoadScenario(into configurations: some Collection<ModelConfiguration>) throws {
@@ -84,6 +118,7 @@ extension Item {
         unit = snapshot.unit
         dailyTarget = plan.dailyTarget
         stepSize = plan.stepSize
+        link = plan.link
         createdAt = snapshot.modifiedAt
         modifiedAt = snapshot.modifiedAt
     }

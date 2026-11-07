@@ -202,7 +202,7 @@ final class DataStore {
         for file in stale where file.hasPrefix("Test-") {
             try? fileManager.removeItem(at: directory.appending(path: file))
         }
-        let schema = Schema(versionedSchema: RootineSchemaV1.self)
+        let schema = RootineStore.schema
         let configuration = ModelConfiguration(
             "Test",
             schema: schema,
@@ -228,11 +228,12 @@ final class DataStore {
             .map { CategoryRef(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) }
         let items = try context.fetch(FetchDescriptor<Item>()).map(\.snapshot)
         let events = try context.fetch(FetchDescriptor<CompletionEvent>()).compactMap { event in
-            event.record.map { ScenarioEvent(record: $0, recordedAt: event.recordedAt) }
+            event.record.map { ScenarioEvent(record: $0, recordedAt: event.recordedAt, origin: event.origin) }
         }
+        let readings = try context.fetch(FetchDescriptor<Reading>()).compactMap(\.snapshot)
         return DataExport(
             exportedAt: clock.now(),
-            data: ScenarioData(categories: categories, items: items, events: events)
+            data: ScenarioData(categories: categories, items: items, events: events, readings: readings)
         )
     }
 

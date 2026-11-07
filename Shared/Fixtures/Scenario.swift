@@ -24,6 +24,10 @@ enum Scenario: String, CaseIterable, Identifiable, Codable, Sendable {
     /// The `typicalDay` library plus what the Watch has relayed: Vitamins renamed "Vitamins + fish oil" (a newer
     /// edit), a Watch-only to-do, Read deleted on the Watch, and Stretch checked off there.
     case relayOverlay
+    /// Items fed by readings (DATA.md, build plan): Steps at 6,214 of 10,000; "Under 1h Instagram" done
+    /// automatically at 52m; "Read 30m on Kindle" not done at 15m; Floss, linked to a metric with no readings
+    /// today, left alone; and "Under 2h Safari" done automatically but un-checked by hand.
+    case dataLinks
     /// 60 generated items with long names covering every pattern and time mode, and a generated year of
     /// history: for UI density and performance budgets.
     case heavy
@@ -43,6 +47,7 @@ enum Scenario: String, CaseIterable, Identifiable, Codable, Sendable {
         case .countedHeavy: "Counted items"
         case .twoDeviceMerge: "Two-device merge"
         case .relayOverlay: "Relay overlay"
+        case .dataLinks: "Data links"
         case .heavy: "Heavy (1 year)"
         case .heavyThreeYears: "Heavy (3 years)"
         }
@@ -74,6 +79,8 @@ enum Scenario: String, CaseIterable, Identifiable, Codable, Sendable {
         case .relayOverlay:
             builder.addTypicalLibrary()
             builder.addRelayOverlay()
+        case .dataLinks:
+            builder.addDataLinks()
         case .heavy:
             builder.addHeavyLibrary(startedDaysAgo: 365)
             builder.addGeneratedHistory(days: 365)
@@ -118,7 +125,8 @@ struct ScenarioBuilder {
         unit: String = "",
         symbol: String = "star",
         color: ItemColor = .blue,
-        category: CategoryRef? = nil
+        category: CategoryRef? = nil,
+        link: ItemLink? = nil
     ) -> ItemPlan {
         let plan = ItemPlan(
             id: stableID("item", name),
@@ -130,7 +138,8 @@ struct ScenarioBuilder {
             dueDay: kind == .oneOff ? dueDay : nil,
             dailyTarget: kind == .counted ? target : 1,
             stepSize: kind == .counted ? step : 1,
-            category: category
+            category: category,
+            link: link
         )
         data.items.append(ItemSnapshot(
             plan: plan,
@@ -169,6 +178,10 @@ struct ScenarioBuilder {
             amount: amount
         )
         data.events.append(ScenarioEvent(record: record, recordedAt: recordedAt))
+    }
+
+    mutating func add(_ readings: [ReadingValue]) {
+        data.readings += readings
     }
 
     var weekStart: LocalDay {

@@ -4,6 +4,7 @@ import SwiftUI
 /// Creates a new item (`item == nil`) or edits an existing one. Changes apply only on Save.
 struct ItemEditorView: View {
     let item: Item?
+    let today: LocalDay
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -17,6 +18,7 @@ struct ItemEditorView: View {
 
     init(item: Item?, today: LocalDay) {
         self.item = item
+        self.today = today
         _draft = State(initialValue: item.map { ItemDraft(item: $0, today: today) } ?? ItemDraft(today: today))
     }
 
@@ -33,6 +35,9 @@ struct ItemEditorView: View {
                     scheduleSection
                 }
                 timeSection
+                if draft.link != nil {
+                    dataSourceSection
+                }
                 if item != nil {
                     deleteSection
                 }
@@ -186,6 +191,19 @@ struct ItemEditorView: View {
         }
     }
 
+    private var dataSourceSection: some View {
+        Section {
+            if let link = draft.link {
+                LabeledContent("Linked to", value: link.summary)
+            }
+            Button("Remove Link", role: .destructive) { draft.link = nil }
+        } header: {
+            Text("Data Source")
+        } footer: {
+            Text("Completes on its own from readings. Removing the link keeps today's progress.")
+        }
+    }
+
     private var deleteSection: some View {
         Section {
             Button("Delete Item", role: .destructive) { isConfirmingDelete = true }
@@ -208,6 +226,12 @@ struct ItemEditorView: View {
             return newItem
         }()
         draft.apply(to: target, category: categories.first { $0.id == draft.categoryID })
+        if draft.link != nil {
+            // A new or changed link picks up readings that are already here.
+            for record in (try? modelContext.evaluateLinkedItems(on: today)) ?? [] {
+                relay.send(record)
+            }
+        }
         dismiss()
     }
 

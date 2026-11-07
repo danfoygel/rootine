@@ -40,7 +40,8 @@ struct CloudKitCompatibilityTests {
 
     @Test func latestSchemaIsTheOneTheStoreOpens() throws {
         let latest = try #require(Self.versions.last)
-        #expect(latest.versionIdentifier == RootineSchemaV1.versionIdentifier)
+        #expect(latest.versionIdentifier == RootineSchemaV2.versionIdentifier)
+        #expect(RootineStore.schema.version == latest.versionIdentifier)
     }
 }
 
