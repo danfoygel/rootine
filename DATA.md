@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Nothing here has been built or tested on a device yet. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. None of the sources is built yet (the shared readings core is; see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -10,8 +10,12 @@ Status: research notes from November 2026, gathered before any code was written.
 | **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
 | **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
 | **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
+| **Sleep / wake times** | Wake time: probably (untested). Bed time: only scheduled times | Shortcuts automations (Alarm → Is Stopped, Sleep/Focus triggers) → `LogDayBoundaryIntent`; HealthKit sleep as next-day cross-check | Low | Alarm stopped on the Watch may not fire; no signal on alarm-free days |
+| **Time in Daylight** | Yes | HealthKit `timeInDaylight` (recorded by the Watch) as a counted item in minutes | Low (with section 9 HealthKit) | Watch→iPhone sync delay; sleeves/shade under-count |
+| **State of Mind** | Yes, read and write | HealthKit `HKStateOfMind`: auto-complete "log mood"; Watch check-in writes to Health; mood-vs-completion stats | Low–Medium | Sensitive: keep it in HealthKit, store no copies |
+| **Motion activity** | Yes (iPhone) | `CMMotionActivityManager` 7-day query → daily `MotionDay` summaries | Low–Medium | Noisy driving/cycling; 7-day window loses data if the app isn't opened |
 
-**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier. The build plan below revises this order.
+**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier. Wake-time logging can share that App Intent work. Time in Daylight and State of Mind ride along with the HealthKit work in (1). Motion activity comes after HealthKit, and its commute labelling after location. The build plan below revises this order.
 
 ## Build plan
 
@@ -79,6 +83,10 @@ Only if device checks 8–10 confirm the BLE-only M10+ with the expected service
 - A pure `TemtopFrame` parser with captured hex frames as fixtures, including checksum failures.
 - `AirQualityReader` (CoreBluetooth, iPhone first) connects on foreground or a "Refresh air" button, reads one frame and disconnects cleanly. Each read becomes a `Reading` per metric; the daily maximum for CO₂ and PM2.5 feeds `atMost` links.
 - Done: CO₂ in Rootine matches the display, and the Temtop app still connects afterwards.
+
+### Later sources (sections 5–8)
+
+Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Wake-time logging is a second App Intent beside phase 1's. Motion activity comes after phase 2, and its commute labelling after phase 3.
 
 ### Not planned
 
@@ -503,6 +511,259 @@ Skip continuous GPS trails and Watch-side location.
 
 ---
 
+## 5. Sleep and wake times (Shortcuts triggers)
+
+### Verdict
+**Probably feasible, with the same Shortcuts → App Intent pattern as Screen Time.** Rootine can't read the Sleep schedule, but personal automations can tell it when things happen.
+- **Wake time:** good signals. The best is *Alarm → Is Stopped*, which records when Dan actually stops the alarm.
+- **Bed time:** weak signals. *Wind Down* and *Bedtime* fire at the scheduled times, not when Dan actually goes to bed.
+
+So: record the actual wake time each morning, keep the routine's manual bed time for the pace model, and check both against HealthKit sleep data the next day. This could revisit the "manual waking hours" decision in REQUIREMENTS.md section 6. Most trigger behaviour below comes from Apple's guide or community reports and has **not been tested on Dan's phone**.
+
+### Signals
+
+| Signal | What it tells you | When it arrives | Reliability |
+|---|---|---|---|
+| **Alarm → Is Stopped** (picker: Any / Wake Up / a specific alarm; there is also *Is Snoozed*) | When the alarm was stopped. The best proxy for actual wake time | When Dan stops it on the iPhone | Good on the phone. *Unverified:* reported **not to fire when the alarm is dismissed on the Watch**. It doesn't fire for third-party AlarmKit alarms |
+| **Sleep → Waking Up** | That the scheduled Wake Up alarm went off | At the scheduled time | Needs a Health sleep schedule with an alarm. Gives the planned time, not the actual one; one report of it firing late |
+| **Sleep → Wind Down / Bedtime starts** | The scheduled times | At the scheduled times | Needs a Health sleep schedule. One report of Wind Down never firing until automatic Sleep Focus was turned on |
+| **Focus → Sleep turned on / off** | When Sleep Focus starts or ends (alarm stopped, or ended by hand) | When it happens | Conflicting reports: added in an iOS 26 beta, reported missing in the release |
+| **Focus filter** (`SetFocusFilterIntent`) | Sleep Focus on or off, if Dan adds Rootine's filter to Sleep only | When the Focus changes | Unreliable in the background unless the intent also conforms to `LiveActivityIntent` (HA iOS PR #5656). Parameters must be optional, or nothing is reported when the Focus turns off. *Unverified* that Sleep accepts filters |
+| **HealthKit `sleepAnalysis`** | Actual sleep start/end, with stages | Minutes to hours after waking, after the Watch syncs | Good for history; too late for that morning's pace. Watch `inBed` samples reportedly gone since iOS 18 |
+| **Screen Time hourly data** (section 1) | First and last hours with phone use | The 06:00 run, for yesterday | Hour-level only; a cross-check for bed time |
+| First unlock / first phone use | — | — | No API |
+
+### How it would work in Rootine
+1. **One App Intent:** `LogDayBoundaryIntent(kind: .wake | .bed, source: String, at: Date?)`. If `at` is nil, the intent uses the time it runs. It saves a CloudKit-compatible `DayBoundaryEvent` (all fields defaulted), which syncs to the Watch.
+2. **Automations Dan sets up**, each with *Run Immediately* on:
+   - Alarm → Wake Up (or Any) → Is Stopped → wake, `alarm`
+   - Focus → Sleep turned off → wake, `focus`, if iOS 26.6 offers that trigger
+   - Sleep → Bedtime starts → bed, `schedule`
+   - optionally Focus → Sleep turned on → bed, `focus`
+3. **Pace model:**
+   - **Wake time:** the first wake event of the day wins. If none has arrived by the planned wake time plus a grace period (e.g. 90 min), use the routine's manual wake time. Anytime and counted items are then spread from that wake time to the routine's bed time. Exact-time and windowed items stay where they are.
+   - **Bed time:** stays as the routine's manual time. Actual bed events go to history and stats only.
+4. **Cross-check:** the next day, read HealthKit `sleepAnalysis` and store the actual sleep start and end beside the signals. Later this could suggest updates to the routine's times.
+
+### Limitations & risks
+- **Days with no alarm** (weekends, holidays): possibly no signal at all, so the routine's times are used.
+- **Watch dismissal:** stopping the alarm on the Watch may not trigger the iPhone automation. Dan has a Series 8, so this matters.
+- **Phone off or never unlocked since a restart:** automations probably don't run, so wake events can be missing or late. Don't trust a wake time logged long after the alarm.
+- **Naps:** ignore wake events after the first of the day, and bed events before about 18:00.
+- **Bed times after midnight** belong to the previous day; assign bed events to the day of the last wake.
+- **Travel and DST:** store absolute `Date`s and work out local days with the current time zone. The routine's manual times are local wall-clock times.
+- **iOS updates:** the Sleep and Focus triggers have changed between releases.
+
+### Recommendation
+Build `LogDayBoundaryIntent` and use **Alarm → Is Stopped** for wake time, falling back to the routine's manual times. That's low effort and needs no new permissions. Add the HealthKit cross-check with the section 9 HealthKit work. Skip the Focus filter unless the Sleep Focus on/off triggers turn out to be missing on 26.6. Update REQUIREMENTS.md section 6 once wake events have been tested on the phone.
+
+### Sources
+- https://support.apple.com/guide/shortcuts/apd932ff833f/ios (snippet only)
+- https://developer.apple.com/forums/thread/829593 (AlarmKit and the Is Stopped trigger)
+- https://community.home-assistant.io/t/apple-watch-alarm-automations-an-easy-ish-fix/707326 (snippet only)
+- https://community.home-assistant.io/t/sync-ios-26-sleep-alarm-to-ha-companion-app-2026-7/1019713 (snippet only)
+- https://talk.automators.fm/t/wind-down-trigger-not-working/8838 (snippet only)
+- https://www.derekseaman.com/2025/06/home-assistant-trigger-on-any-ios-18-ios-26-focus-mode.html, https://www.derekseaman.com/2026/07/home-assistant-ios-focus-mode-automations-2027-edition.html (snippets only)
+- https://github.com/home-assistant/iOS/pull/5656
+- https://developer.apple.com/forums/thread/766761, /763329, /766977
+- https://developer.apple.com/documentation/appintents/setfocusfilterintent
+
+---
+
+## 6. Time in Daylight (HealthKit)
+
+### Verdict
+**Feasible and cheap.** It's a standard cumulative HealthKit quantity, so "20 minutes outside" fits the section 9 HealthKit linking as a counted item in minutes. The weak points are latency and accuracy, not access. The Watch records the data, so the iPhone sees it only after a Watch→iPhone sync that Apple doesn't time, and the number is Apple's estimate rather than a measurement.
+
+### What's available
+
+| | |
+|---|---|
+| Type | `HKQuantityTypeIdentifier.timeInDaylight`, iOS 17 / watchOS 10 |
+| Unit / aggregation | Time (read as `.minute()`), cumulative, so sums work |
+| Recorded by | Apple Watch SE (2nd gen) and Series 6 or later, which includes Dan's Series 8. Ambient light sensor plus GPS/motion (*unverified*). The iPhone doesn't record it (*unverified*). |
+| Samples | Short intervals, reportedly about 5 min (*unverified*) |
+| Metadata | `HKMetadataKeyMaximumLightIntensity` (lux) is a public key; whether Dan's samples carry it is *unverified* |
+| Health app | Daily/weekly/monthly charts; each sample shows "Maximum Light Intensity" |
+
+### How it would work in Rootine
+- **Item:** counted, unit "min", target 20, linked to `timeInDaylight` with threshold 20. Progress is **set** to today's sum (midnight to now) rather than added to, so a re-delivered sample can't count twice.
+- **Pace:** make it a **windowed** item (e.g. 08:00–16:00). Spreading the target over all waking hours would mark Dan "behind" after dark.
+- **Queries:** `HKStatisticsQuery` with `.cumulativeSum` for today's total. For per-hour charts ("before noon") or weekly totals, `HKStatisticsCollectionQuery` with 1 h or 1 day buckets.
+- **iPhone (authority):** the same `HKObserverQuery` + `enableBackgroundDelivery` + anchored-query setup as for ViHealth (section 2). It writes the completion, which syncs to the Watch.
+- **Watch (freshness):** the samples exist on the Watch first. When the Watch app opens or its complication refreshes, it can read its own store and send the value to the phone through the WatchConnectivity relay. On watchOS, background delivery for this type is **hourly at most**, and only with a complication on the active face.
+
+### Limitations & risks
+- **Latency:** Apple says Watch→iPhone HealthKit sync timing "is determined by the system". Expect minutes to tens of minutes, sometimes longer.
+- **Accuracy:** sleeves, shade and clouds reduce or block readings; only recorded while the Watch is worn; window light probably doesn't count. Apple calls the value an "estimate".
+- **Missing data:** users report days with no data, or the Watch not listed as a source, with no fix found (*unverified*, snippets only). Short winter days make this worse.
+- **Simulator:** no Time in Daylight data and no background delivery; test on the devices.
+
+### Recommendation
+Build it with the other section 9 HealthKit types; it adds almost no extra work. Have the Watch read its own store when its app or complication refreshes, so progress shows sooner. Expect occasional misses on long-sleeve days.
+
+### Sources
+- https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/timeindaylight
+- https://developer.apple.com/documentation/healthkit/hkmetadatakeymaximumlightintensity
+- https://developer.apple.com/documentation/healthkit/hkhealthstore/enablebackgrounddelivery(for:frequency:withcompletion:)
+- https://developer.apple.com/documentation/healthkit/executing-statistics-collection-queries
+- https://developer.apple.com/forums/thread/839051 (granularity/latency/lux question, unanswered)
+- https://developer.apple.com/forums/thread/837104 (HealthKit vs SensorKit don't match 1:1)
+- https://developer.apple.com/forums/thread/780012 (sync timing decided by the system)
+- https://developer.apple.com/forums/thread/814914 (watchOS 26 background delivery timing)
+- https://support.apple.com/guide/watch/apd3ab22534c/watchos (snippet only)
+- https://discussions.apple.com/thread/255900038, https://forums.macrumors.com/threads/aws10-not-detecting-daylight.2439896 (snippets only)
+- https://aao.org/eye-health/tips-prevention/apple-time-daylight-screen-distance-myopia-strain
+
+---
+
+## 7. State of Mind (HealthKit)
+
+### Verdict
+**Yes. Rootine can both read and write it, and it fits the section 9 HealthKit work.** The developer API (`HKStateOfMind`) arrived in **iOS 18 / watchOS 11** (the Health and Mindfulness logging screens date from iOS 17 / watchOS 10), and both work on 26.x. A "log mood" habit that ticks itself off, plus a mood-vs-completion stat, takes little effort.
+
+### Data model
+
+| Field | Values |
+|---|---|
+| Type | `HKObjectType.stateOfMindType()` → `HKStateOfMindType`. Read and share (write). |
+| `kind` | `.momentaryEmotion` (seconds to minutes) or `.dailyMood` (hours or days) |
+| `valence` | `Double`, −1 (very unpleasant) … +1 (very pleasant) |
+| `valenceClassification` | 7 buckets, `veryUnpleasant` … `veryPleasant`; `init(valence:)` derives one |
+| `labels` | `[Label]`, 38 cases (happy, calm, stressed, anxious, drained…) |
+| `associations` | `[Association]`, 18 cases (work, family, fitness, health, selfCare, tasks, weather…) |
+| Init | `HKStateOfMind(date:kind:valence:labels:associations:metadata:)`, a single point in time |
+
+People log it in Health on the iPhone, in Mindfulness on the Watch (which has a complication), and in third-party apps.
+
+### How it would work in Rootine
+- **Read (iPhone):** the same observer + background delivery + anchored-query setup as the other HealthKit types, using `HKSamplePredicate.stateOfMind(...)`. Filter with `HKQuery.predicateForStatesOfMind(with:)` (kind, label or association) and `predicateForStatesOfMind(withValence:operatorType:)`. Apple's docs don't list which background-delivery frequencies this type supports (*unverified*).
+- **Write (Watch first):**
+  - A one-screen check-in with 5 faces mapped to valence −1, −0.5, 0, 0.5, 1, plus optional label and association chips.
+  - Save it as `.momentaryEmotion` with `healthStore.save`. This needs share authorization and `NSHealthUpdateUsageDescription`.
+  - Whether empty `labels`/`associations` arrays are accepted is *unverified*; test it.
+  - The complication can only open the check-in screen; saving straight from a complication probably isn't possible (*unverified*).
+  - Follow the WWDC24 guidance: logging is active reflection, so never infer mood. Don't colour unpleasant moods as "bad" or score them.
+- **Habit auto-complete:**
+  - Link the item to State of Mind with the threshold "≥ 1 sample". A sample dated inside the item's window completes it.
+  - "Twice a day" can be a counted item with target 2, or two windowed items (morning and evening).
+  - Record the HealthKit sample UUID on the `CompletionEvent`, so a check-in Rootine wrote itself isn't counted again when the observer sees it.
+  - Only the iPhone generates auto-completions; the Watch gets them through the relay and CloudKit.
+- **Stats (section 7 of REQUIREMENTS.md):** daily mean valence (preferring `.dailyMood` when present) against completion rate or end-of-day pace, as a scatter plot or weekly overlay, plus per-association averages. Compute on demand from HealthKit, and say when there are too few data points.
+- **Assessments:** `HKPHQ9Assessment` and `HKGAD7Assessment` (iOS 18) can be read for a monthly trend line. Don't write them.
+
+### Limitations & risks
+- **Sensitive data.** Copies in SwiftData would sync to CloudKit, which is end-to-end encrypted only with Advanced Data Protection on. **Keep mood in HealthKit only**; Rootine stores just the sample UUID on the completion event, never valence or labels.
+- **Test mode:** use fake mood samples in the test store; never write them to HealthKit.
+- **Invisible read denial:** HealthKit doesn't tell an app it was refused read access, so "no samples" is ambiguous.
+- **Run all stats on the iPhone.** The Watch's HealthKit store purges old data, and background delivery there is at most hourly.
+- HealthKit holds back delivery while the iPhone is locked.
+- Health's own State of Mind reminders could duplicate Rootine's.
+
+### Recommendation
+1. Read on the iPhone and add the "log mood" auto-complete, alongside the ViHealth HealthKit reading.
+2. Add the Watch check-in that writes to Health, with a complication that opens it.
+3. Add mood-vs-completion stats, computed on demand.
+4. Later, show PHQ-9 / GAD-7 scores read-only.
+5. Store no mood copies.
+
+### Sources
+- https://developer.apple.com/documentation/healthkit/hkstateofmind
+- https://developer.apple.com/documentation/healthkit/hkstateofmind/label
+- https://developer.apple.com/documentation/healthkit/hkstateofmind/association
+- https://developer.apple.com/documentation/healthkit/hkstateofmind/valenceclassification-swift.enum
+- https://developer.apple.com/documentation/healthkit/hkobjecttype/stateofmindtype()
+- https://developer.apple.com/documentation/healthkit/hkquery/predicateforstatesofmind(withvalence:operatortype:)
+- https://developer.apple.com/documentation/healthkit/hkhealthstore/enablebackgrounddelivery(for:frequency:withcompletion:)
+- https://developer.apple.com/documentation/healthkit/hkscoredassessment
+- https://developer.apple.com/videos/play/wwdc2024/10109/ ("Explore wellbeing APIs in HealthKit")
+- https://support.apple.com/guide/watch/apd7de0f5610/watchos (snippet only)
+- https://discussions.apple.com/thread/255896268 (Health export omits moods; unverified)
+
+---
+
+## 8. Motion activity (CoreMotion)
+
+### Verdict
+**Yes, on the iPhone, as a supplement to HealthKit rather than a replacement.** `CMMotionActivityManager` gives timestamped stationary, walking, running, driving (automotive) and cycling changes, with no GPS. The system records these whether or not Rootine is running, but keeps **only the last 7 days**, so Rootine has to import and summarise them before they drop off. Walking and stationary are reliable; driving and cycling are noticeably noisy.
+
+### What's available
+
+| API | Data | History | Notes |
+|---|---|---|---|
+| `CMMotionActivityManager.queryActivityStarting(from:to:to:)` | `CMMotionActivity` change events: `startDate`, flags `stationary/walking/running/automotive/cycling/unknown`, `confidence` low/medium/high | **7 days**; results can lag "up to several minutes" | One event per change; a segment lasts until the next event. Several flags can be true at once (driving + stationary at a red light), or none. An empty range returns `CMErrorUnknown`, meaning no data rather than failure. |
+| `startActivityUpdates(to:withHandler:)` | The same, live | — | Only while the app runs; query to catch up |
+| `CMPedometer` | Steps, distance, floors, pace, cadence | 7 days | This device only |
+| HealthKit steps/distance/flights/exercise minutes | Phone and Watch merged and de-duplicated | Unlimited | Already planned (section 9); no driving or stationary data |
+
+All run on iOS and watchOS, but each device keeps its own history and the iPhone can't read the Watch's. Authorization: `NSMotionUsageDescription` (the app crashes on first use without it) and `CMMotionActivityManager.authorizationStatus()`. `.restricted` usually means the system Fitness Tracking toggle is off, and the status may not refresh until relaunch.
+
+### How it would work in Rootine
+- **iPhone only.** The phone is what rides in the car. Cycling on the Watch was reported as always "unknown" on watchOS 26.5 (FB22968877).
+- **Catch-up import:** a `MotionImporter` re-queries `max(lastImport, now − 7 d)…now`:
+  - on launch and foreground
+  - on location relaunches (CLVisit / CLMonitor, section 4)
+  - optionally from a `BGAppRefreshTask`, which needs `BGTaskSchedulerPermittedIdentifiers` and the `fetch` background mode in `project.yml`.
+
+  Each run recomputes whole days, so repeats are harmless. A day is marked complete once it ended more than an hour before the import. *Unverified:* whether queries succeed while the phone is locked in the background.
+- **Summarising** (pure, testable logic in `Shared/Scheduling`):
+  1. Pick one label per event, by priority: automotive > cycling > running > walking > stationary > unknown.
+  2. Treat low confidence as unknown.
+  3. A segment runs until the next event. Cap gaps and split at midnight.
+  4. Merge neighbouring segments with the same label, absorbing blips under 2 min.
+  5. Drop segments under a minimum: about 1 min for walking, 3 min for driving.
+  6. Result: "walking 14 min, driving 42 min".
+- **Model** (CloudKit-safe; only the iPhone writes; look up by `dayKey` and update in place, since unique constraints aren't allowed):
+  ```swift
+  @Model final class MotionDay {
+      var dayKey = ""                 // "2026-11-07", local day
+      var walkingMinutes = 0.0; var runningMinutes = 0.0; var cyclingMinutes = 0.0
+      var automotiveMinutes = 0.0; var stationaryMinutes = 0.0; var unknownMinutes = 0.0
+      var segmentsData: Data?         // JSON [MotionSegment(start, end, kind)], merged, a few KB
+      var importedAt = Date(); var isComplete = false
+  }
+  ```
+  About 365 small records a year. Don't store raw events as records.
+- **Swift 6:** there are no async methods and `CMMotionActivity` isn't `Sendable`.
+  - Keep the manager in a `@MainActor` service.
+  - Wrap the query in `withCheckedThrowingContinuation`, converting each event to a `Sendable` struct inside the handler.
+  - Deliver on `.main` or mark the closure `@Sendable`, to avoid tripping Swift 6's runtime isolation checks.
+- **With location:** a driving, walking or cycling segment between leaving one saved place and arriving at another becomes a commute, e.g. "Home → Work: 24 min driving".
+- **Habits:**
+  - "Walk ≥ 20 min": walking + running minutes. This catches easy walks that HealthKit exercise minutes miss.
+  - "Time spent driving" as a counted item.
+  - "Active commute".
+  - "No driving on Sunday" is a *negative* habit that needs end-of-day evaluation. The current item types don't support that, so it's a requirements gap.
+
+### Limitations & risks
+- **Noise:** driving can be classified as walking or unknown with low confidence. Driving detection starts late, at around 30 km/h. A less sensitive detector since iOS 16.4 was never fixed.
+- **Phone placement:** a phone left on a desk reads as stationary while Dan walks, so walking minutes come out low.
+- **The 7-day window:** not opening the app for a week loses data. A Watch-only walk isn't seen at all.
+- **Simulators** don't produce activity data (*unverified*); test on the device.
+- **Battery and privacy:** recording runs on the low-power motion coprocessor, which is on anyway. The data stays on the device until Rootine syncs its summaries.
+
+### Recommendation
+1. After the section 9 HealthKit work, build the daily `MotionDay` import and walking/driving-minutes counted items.
+2. Add commute labelling once `PlaceVisit` exists.
+3. Use HealthKit, not `CMPedometer`, for steps, distance and floors.
+4. Skip Watch-side motion activity for now.
+
+### Sources
+- https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager
+- https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager/queryactivitystarting(from:to:to:withhandler:)
+- https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager/startactivityupdates(to:withhandler:)
+- https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager/authorizationstatus()
+- https://developer.apple.com/documentation/coremotion/cmmotionactivity
+- https://developer.apple.com/documentation/coremotion/cmpedometer
+- https://developer.apple.com/forums/thread/771915 (driving accuracy, DTS reply)
+- https://developer.apple.com/forums/thread/725416 (iOS 16.4 sensitivity change; watchOS 26.5 cycling "unknown")
+- https://developer.apple.com/forums/thread/678138 (stale `.restricted` status)
+- https://developer.apple.com/forums/thread/747797 (Fitness Tracking toggle)
+- https://developer.apple.com/forums/thread/44567 (iPhone can't read the Watch's CoreMotion)
+- https://developer.apple.com/forums/thread/852709 (background CoreMotion / BGAppRefresh reliability)
+
+---
+
 ## Things for Dan to check on the devices
 
 These answer the open questions above, and none needs code.
@@ -534,3 +795,20 @@ These answer the open questions above, and none needs code.
 
 **Location**
 12. Optional: if a Google Timeline backfill is wanted, export it from Google Maps on the iPhone and keep the JSON.
+
+**Sleep / wake**
+13. Shortcuts → Automation → **+**: list the sub-options under **Sleep**, **Alarm** (is *Wake Up* listed, *Any*, or both?) and **Focus** (is Sleep listed with turned on / off?). Does each offer *Run Immediately*?
+14. With a test automation that appends the time to a note: stop the alarm on the **Watch**, then on another day on the **iPhone**. Did each one log? On a day with the alarm skipped, did anything fire?
+15. Settings → Focus → Sleep: is there a *Focus Filters* section?
+
+**Time in Daylight**
+16. Health → Time in Daylight → Show All Data: how long is each sample, is the Watch the source, and does a sample show lux?
+17. After 15 min outside with bare wrists, how long until it appears in iPhone Health? Repeat with a sleeve over the Watch, and by a sunny window.
+
+**State of Mind**
+18. Health → Mental Wellbeing → State of Mind: any history? Momentary or daily? Are Health's own State of Mind reminders on?
+19. Log a mood in Mindfulness on the Watch: how long until it appears in iPhone Health?
+20. Is Advanced Data Protection on (Settings → your name → iCloud)?
+
+**Motion activity**
+21. Settings → Privacy & Security → Motion & Fitness → **Fitness Tracking** is on.
