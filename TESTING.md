@@ -108,7 +108,8 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - **CloudKit-compatibility guard:** walks every schema version in `RootineMigrationPlan` and fails on an attribute that is required with no default, a unique attribute or uniqueness constraint, or a relationship that is required or has no inverse. A temporary unique attribute plus a required one with no default produced exactly those failures. It complements the device check that the CloudKit store opens (§10.1).
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
-- **(planned) Migration fixtures, from the first schema change on.** Commit a small on-disk store created at each released schema version (`RootineTests/Fixtures/Store-V1.store`, made by a disabled-by-default helper test). A test opens a copy with the current schema and `RootineMigrationPlan` and checks that items, categories and events survive. Schema changes stay additive (REQUIREMENTS §14).
+- **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
+- **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
 
@@ -441,7 +442,7 @@ There is no build cache: a cold run takes a few minutes, and a DerivedData cache
 
 ## 12. What's left
 
-1. With the first schema change: migration fixtures (§4.3).
+1. With each schema change: freeze the previous version's models and extend the migration test (§4.3).
 2. With each new feature (notifications, iPhone widgets, quick-add): its pure plan type and tests (§4.6), mode-following in test mode (§6.5), and its device checklist section turned from *(when built)* into live checks.
 3. Row detail strings with a fixed locale (§4.6).
 4. Run the device checklist (§10), starting with §10.9 and §10.8 now that test mode exists.

@@ -2,7 +2,8 @@ import SwiftUI
 
 extension TodayEntry {
     /// Secondary line for list rows, e.g. "Overdue · 8:00 AM" or "750 / 2,000 ml · 7:00 AM – 9:00 AM".
-    func detail(unit: String, isOverdue: Bool) -> String? {
+    /// `reading` is the linked reading's label, e.g. "52m of 1h" (`readingLabel(from:)`).
+    func detail(unit: String, isOverdue: Bool, reading: String? = nil) -> String? {
         var parts: [String] = []
         if isCarriedOver, let due = plan.dueDay {
             parts.append("Due \(due.startDate().formatted(.dateTime.month(.abbreviated).day()))")
@@ -12,6 +13,9 @@ extension TodayEntry {
         if plan.kind == .counted {
             let unitSuffix = unit.isEmpty ? "" : " \(unit)"
             parts.append("\(total.formatted()) / \(target.formatted())\(unitSuffix)")
+        }
+        if let reading {
+            parts.append(reading)
         }
         if let time = plan.timeOfDay.label {
             parts.append(time)

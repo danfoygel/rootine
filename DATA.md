@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Nothing has been built yet; on-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. None of the sources is built yet (the shared readings core is; see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -15,7 +15,82 @@ Status: research notes from November 2026, gathered before any code was written.
 | **State of Mind** | Yes, read and write | HealthKit `HKStateOfMind`: auto-complete "log mood"; Watch check-in writes to Health; mood-vs-completion stats | Low–Medium | Sensitive: keep it in HealthKit, store no copies |
 | **Motion activity** | Yes (iPhone) | `CMMotionActivityManager` 7-day query → daily `MotionDay` summaries | Low–Medium | Noisy driving/cycling; 7-day window loses data if the app isn't opened |
 
-**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier. Wake-time logging can share that App Intent work. Time in Daylight and State of Mind ride along with the HealthKit work in (1). Motion activity comes after HealthKit, and its commute labelling after location.
+**Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier. Wake-time logging can share that App Intent work. Time in Daylight and State of Mind ride along with the HealthKit work in (1). Motion activity comes after HealthKit, and its commute labelling after location. The build plan below revises this order.
+
+## Build plan
+
+Status: November 2026. Phase 0 is built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
+
+**Working in parallel without conflicts:**
+- Each source lives in its own files: `Shared/Sources/<Source>/` for pure parsing and aggregation (its `ReadingSource` and `ReadingMetric` constants are declared there as `extension ReadingSource { static let … }`), the shell in `Rootine/Sources/<Source>/`, and tests in `RootineTests/<Source>Tests.swift`.
+- Shared files take one-line hooks only: a row in the editor's Data Source section (`ItemEditorView.dataSourceSection`) that opens the source's own link editor, a capability block in `project.yml`, and a start-up call in `RootineApp`. Merge conflicts there are trivial.
+- Only phase 3a changes the schema (V3: `Place`, `PlaceVisit`). Screen Time and HealthKit fit in the V2 `Reading` model and need no schema change.
+- Each worktree uses its own simulator (`scripts/check.sh --sim … --watch-sim …`).
+
+### The shared shape
+
+All four sources do the same thing: **a reading arrives on the iPhone, and an item linked to it completes or logs progress by itself.** So they share one core:
+
+- **Readings** are stored as small synced records, kept **coarse**: one summary per day or per stay, never raw samples. At ~700 rows a day, hourly per-app Screen Time would be the 100k-record CloudKit problem from section 4 within half a year. A 4-second SpO2 stream is worse.
+- **A link on the item** says which reading feeds it and how: a source, a metric, a comparison and a threshold. It is stored as JSON in one optional field, like `recurrenceData`, so later sources and metrics need no schema change.
+- **A pure evaluator** in `Shared/Scheduling` takes (linked items, one day's readings, ledger) and returns the progress the data implies for that day. The shell inserts only the **difference** from what automatic events have already recorded. Re-running it is therefore always safe: the Shortcuts automation running twice, a HealthKit observer waking repeatedly, or a duplicate visit.
+- **Automatic events are ordinary `CompletionEvent`s** with a new `origin` field (`manual` / `auto`, default `manual`). They sync and relay unchanged, the Watch needs no new code, and the evaluator can tell its own contributions apart from Dan's taps. Undoing an auto-completion by hand is a normal negative manual event, and the evaluator doesn't fight it, because it only manages auto totals.
+- **Limit habits** ("under 1h of Facebook", "CO₂ never above 1200") are a new comparison, `atMost`. Because Screen Time arrives the next morning, they are evaluated for the *previous* day, and the completion is recorded against that day's `dayKey`. CompletionEvent already allows that.
+- **All on the iPhone.** HealthKit observers, App Intents, location and Bluetooth all run there. The Watch sees the results as completions through CloudKit and the relay.
+- **Test mode:** readings live in the active data store like everything else. Scenarios gain readings, so test mode and the UI smoke suite show auto-completed items without hardware.
+
+### Phase 0: readings core (built)
+
+In `Shared/Scheduling/ItemLink.swift` (`ItemLink`, `ReadingValue`, `ReadingEvaluator`), `Shared/Model/Reading.swift`, `StoreActions` (`replaceReadings`, `addReadings`, `evaluateLinkedItems`) and the `dataLinks` scenario. Sources call `replaceReadings` for a whole day's summary (Screen Time, HealthKit totals) or `addReadings` for one-off readings (visits, air), then relay the returned records with `WatchRelay.send`.
+
+- Schema V2 (additive): `Item.linkData: Data?`; `CompletionEvent.originRaw = "manual"`; a generic `Reading` model (`id`, `sourceRaw`, `metric`, `subject` for an app name, place or device, `dayKey`, `start`, `end?`, `value`, `unit`, `recordedAt`, all defaulted). This is the first schema change, so it brings the migration fixtures from `TESTING.md` §4.3: a V1 store opens under V2 with nothing lost.
+- `ItemLink` (Codable enum) and `ReadingEvaluator` (pure, `Sendable`), with unit tests covering thresholds, `atLeast`/`atMost`, counted-item progress from a value (e.g. 6,000 of 10,000 steps → 3 of 5 steps), re-run idempotence, a manual undo staying undone, and previous-day evaluation.
+- `ModelContext.applyReadings(_:for:)` in `StoreActions`: it replaces a source's readings for the day, runs the evaluator and inserts the difference.
+- Editor: a "Data Source" section shows an item's link and can remove it; each source adds its own way to create one. Today rows show the linked value in the row detail (e.g. "52m of 1h").
+- Fixtures: a scenario with readings and linked items.
+
+### Phase 1: Screen Time via Shortcuts
+
+Verified and cheap, and it exercises the whole core end to end: the intent can be run in the simulator from a test, so no hardware is needed to check it.
+
+- `LogScreenTimeIntent` (App Intents, iPhone target) takes JSON rows. A pure parser in `Shared/` accepts seconds or the `1h 2m 3s` form, falls back to `Description`, and has fixtures captured from the real shortcut.
+- Store **one `Reading` per app (and per website) per day**: `metric = screenTime`, value in seconds. If an hourly view is wanted later, it goes in one per-day record holding JSON, not 24 rows.
+- Links: `screenTime(app:) atMost N minutes` (limit habit) and `atLeast` (e.g. 30 min in a reading app).
+- Shortcut: the hourly loop collapses to one *Yesterday* call each for Apps and Websites. Build it by hand first, then generate the signed file (section 1).
+- Done: Dan's 06:00 automation runs for a week; yesterday's limit habits resolve each morning and match Settings → Screen Time.
+
+### Phase 2: HealthKit, ViHealth plus the general section 9 links
+
+Needs device checks 3–7 first (whether ViHealth writes to Health at all, and how often).
+
+- `project.yml`: HealthKit plus the `background-delivery` entitlement and `NSHealthShareUsageDescription`, on the iPhone only.
+- `HealthReader` (shell): an `HKObserverQuery` and background delivery per linked type, and `HKAnchoredObjectQuery` with anchors saved locally (not synced). It only reads types that some item is linked to.
+- Types: the BP correlation, SpO2 and HR for ViHealth, plus the section 9 set (steps, distance, exercise minutes, stand, workouts, water, sleep, mindfulness). Each type is one daily `Reading`: a sum (steps), a count (BP readings, workouts) or a summary (overnight SpO2 minimum, average and minutes below 90%).
+- A pure aggregation per type, tested against sample sets built in code, including duplicated ViHealth nights.
+- Done: a BP reading on the Checkme completes "Take BP" without opening Rootine (beyond whatever ViHealth needs), and a steps item tracks the Health app.
+
+### Phase 3: location, saved places and visits
+
+- 3a **Places + visits → auto-complete:** `Place` and `PlaceVisit` models (section 4 design, with `allowsCloudEncryption` on coordinates from the start), the When In Use → Always flow, `CLMonitor` per place plus `CLVisit` and significant-change monitoring, a places editor with a map pin and radius, "Save this place?" for unmatched visits, and delete-history and retention settings. Each visit becomes a `Reading` (`metric = minutesAtPlace`, `subject = placeID`), so "Gym" and time-at-place items go through the shared evaluator.
+- 3b **Arrive/leave reminders** need the v1 notification work (`REQUIREMENTS.md` §5) and so come after it.
+- 3c *(optional)* the one-time Google Timeline import.
+- Done: a week of real visits on the iPhone, with a gym habit completing on its own. Track the stale-`didVisit` warning (iOS 26 regression).
+
+### Phase 4: Temtop air quality
+
+Only if device checks 8–10 confirm the BLE-only M10+ with the expected service. Otherwise, decide whether to replace the monitor (section 3) before building anything.
+
+- A pure `TemtopFrame` parser with captured hex frames as fixtures, including checksum failures.
+- `AirQualityReader` (CoreBluetooth, iPhone first) connects on foreground or a "Refresh air" button, reads one frame and disconnects cleanly. Each read becomes a `Reading` per metric; the daily maximum for CO₂ and PM2.5 feeds `atMost` links.
+- Done: CO₂ in Rootine matches the display, and the Temtop app still connects afterwards.
+
+### Later sources (sections 5–8)
+
+Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Wake-time logging is a second App Intent beside phase 1's. Motion activity comes after phase 2, and its commute labelling after phase 3.
+
+### Not planned
+
+The Mac Biome helper, `DeviceActivityMonitor` thresholds, direct ViHealth Bluetooth, the Viatom and Temtop clouds, and Watch-side location. Each is a fallback in its section, used only if the chosen path fails in practice.
 
 ---
 

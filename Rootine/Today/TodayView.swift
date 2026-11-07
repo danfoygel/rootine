@@ -8,6 +8,7 @@ struct TodayView: View {
     @Environment(\.appClock) private var clock
     @Query private var items: [Item]
     @Query private var events: [CompletionEvent]
+    @Query private var readings: [Reading]
     @AppStorage("todayLayout") private var layout = TodayLayout.byTime
     @State private var editorTarget: EditorTarget?
     @State private var isShowingSettings = false
@@ -55,6 +56,7 @@ struct TodayView: View {
         // CloudKit can't enforce unique IDs, so tolerate duplicates rather than trapping.
         let modelsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let doneCount = entries.count(where: \.isDone)
+        let dayReadings = readings.filter { $0.dayKey == day.key }.compactMap(\.snapshot)
 
         return List {
             ForEach(layout.sections(for: entries, at: now)) { section in
@@ -65,6 +67,7 @@ struct TodayView: View {
                                 entry: entry,
                                 item: item,
                                 isOverdue: entry.isOverdue(at: now),
+                                reading: entry.readingLabel(from: dayReadings, on: day),
                                 record: { record($0, for: entry, on: day) },
                                 edit: modelsByID[entry.id].map { model in { editorTarget = .edit(model) } }
                             )

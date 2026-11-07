@@ -22,6 +22,8 @@ struct ItemPlan: Identifiable, Hashable, Codable, Sendable {
     /// Counted items only: how much one tap adds.
     var stepSize: Int
     var category: CategoryRef?
+    /// Readings that complete or count toward the item automatically.
+    var link: ItemLink?
 
     init(
         id: UUID = UUID(),
@@ -33,7 +35,8 @@ struct ItemPlan: Identifiable, Hashable, Codable, Sendable {
         dueDay: LocalDay? = nil,
         dailyTarget: Int = 1,
         stepSize: Int = 1,
-        category: CategoryRef? = nil
+        category: CategoryRef? = nil,
+        link: ItemLink? = nil
     ) {
         self.id = id
         self.name = name
@@ -45,6 +48,7 @@ struct ItemPlan: Identifiable, Hashable, Codable, Sendable {
         self.dailyTarget = dailyTarget
         self.stepSize = stepSize
         self.category = category
+        self.link = link
     }
 
     /// Progress needed for a day to count as done.

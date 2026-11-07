@@ -73,6 +73,9 @@ struct ItemDraft: Equatable {
     var dailyTarget = 8
     var stepSize = 1
 
+    /// Readings that feed the item. Each data source adds its own editor for this (DATA.md, build plan).
+    var link: ItemLink?
+
     init(today: LocalDay) {
         startDay = today
         dueDay = today
@@ -94,6 +97,7 @@ struct ItemDraft: Equatable {
         unit = item.unit
         dailyTarget = item.dailyTarget
         stepSize = item.stepSize
+        link = item.link
         load(item.recurrence ?? .daily)
         load(item.timeOfDay)
     }
@@ -155,6 +159,7 @@ struct ItemDraft: Equatable {
         item.unit = kind == .counted ? unit.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         item.dailyTarget = kind == .counted ? max(1, dailyTarget) : 1
         item.stepSize = kind == .counted ? max(1, stepSize) : 1
+        item.link = link
         item.modifiedAt = .now
     }
 
