@@ -109,6 +109,7 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
+- **`HealthTests.swift`:** HealthKit's pure layer (`Shared/Sources/Health/`), from samples built in code: every type's daily aggregation (sums, distinct counts, workouts per activity, time asleep with overlapping sources counted once, the overnight SpO2 minimum, average and time below 90%, the heart-rate range); exact duplicates (ViHealth re-syncing a night) counting once; empty days having no readings; the midnight split, where calendar types cut at midnight and a night (sleep, SpO2) belongs to the day it ends, including across the November DST change; the look-back on affected days; editor choices converting minutes, hours and percentages to reading units and back; and aggregated readings completing linked items through a real store, each type replacing only its own readings. `HealthReader` itself is a shell checked on the device (§10.10).
 - **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
@@ -419,6 +420,22 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - [ ] Back to Real data: the real list and complication are exactly as before, and real changes made on the other device during the test session have synced in.
 - [ ] Export Real Data, then Load Export into Test Data: the test list matches the real one until the next reset.
 - [ ] *(when built)* In test mode, reminders are for test items only and real ones don't fire; switching back restores the real reminders.
+
+### 10.10 HealthKit
+
+iPhone only, on the real store (HealthKit is never read in test mode; test-mode readings come from scenarios). Background delivery doesn't run in the simulator. First run DATA.md's device checks 3–7 (whether and how often ViHealth writes to Health). Use "TEST …" items (§6.7).
+
+- [ ] The first build with HealthKit installs (the App ID gains the HealthKit capability through automatic signing with `-allowProvisioningUpdates`) and launches with no Health prompt while no item is linked.
+- [ ] Link an item to Health (Edit → Data Source → Health): saving it asks for read access to just that type (for blood pressure: systolic and diastolic). Linking a second type asks again for only the new one.
+- [ ] "TEST Walk" at least 10,000 steps: the row shows today's steps matching the Health app, and it completes on its own once Health passes 10,000. The Watch shows it done (relay or CloudKit).
+- [ ] "TEST Water" counted in ml, 1 per ml: logging 250 ml in Health adds 250 within a minute or so with Rootine in the background.
+- [ ] "TEST Take BP" at least 1 reading: a Checkme reading completes it without opening Rootine. Note whether ViHealth had to be opened, and how long it took.
+- [ ] "TEST SpO2" overnight lowest at least 90%: after a night with the O2 Ring, the reading lands on the morning's day, and re-syncing the night in ViHealth doesn't change it.
+- [ ] Time asleep, stand hours, exercise minutes, workouts (one activity and Any), mindful minutes and Time in Daylight each match the Health app for a day.
+- [ ] Unchecking an automatically completed item by hand keeps it unchecked when more samples arrive.
+- [ ] In test mode, no Health prompt appears and no real readings are written; switching back to Real catches up on samples that arrived meanwhile.
+- [ ] Removing the last link to a type stops the reads (no new readings of it after a day).
+- [ ] After a reboot with the phone locked, readings resume once it's unlocked (HealthKit holds back delivery while locked).
 
 ## 11. CI: GitHub Actions
 

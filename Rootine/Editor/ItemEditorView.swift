@@ -35,9 +35,7 @@ struct ItemEditorView: View {
                     scheduleSection
                 }
                 timeSection
-                if draft.link != nil {
-                    dataSourceSection
-                }
+                dataSourceSection
                 if item != nil {
                     deleteSection
                 }
@@ -195,12 +193,16 @@ struct ItemEditorView: View {
         Section {
             if let link = draft.link {
                 LabeledContent("Linked to", value: link.summary)
+                Button("Remove Link", role: .destructive) { draft.link = nil }
             }
-            Button("Remove Link", role: .destructive) { draft.link = nil }
+            // Each source's row opens its own link editor (DATA.md, build plan).
+            HealthLinkRow(link: $draft.link, kind: draft.kind)
         } header: {
             Text("Data Source")
         } footer: {
-            Text("Completes on its own from readings. Removing the link keeps today's progress.")
+            if draft.link != nil {
+                Text("Completes on its own from readings. Removing the link keeps today's progress.")
+            }
         }
     }
 

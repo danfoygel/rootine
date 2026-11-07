@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. None of the sources is built yet (the shared readings core is; see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. HealthKit (phase 2) and the shared readings core are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -59,15 +59,31 @@ Verified and cheap, and it exercises the whole core end to end: the intent can b
 - Shortcut: the hourly loop collapses to one *Yesterday* call each for Apps and Websites. Build it by hand first, then generate the signed file (section 1).
 - Done: Dan's 06:00 automation runs for a week; yesterday's limit habits resolve each morning and match Settings → Screen Time.
 
-### Phase 2: HealthKit, ViHealth plus the general section 9 links
+### Phase 2: HealthKit, ViHealth plus the general section 9 links (built)
 
-Needs device checks 3–7 first (whether ViHealth writes to Health at all, and how often).
+Built in `Shared/Sources/Health/` (pure), `Rootine/Sources/Health/` (shell) and `RootineTests/HealthTests.swift`. Device checks 3–7 (whether and how often ViHealth writes to Health) are still Dan's to run; the HealthKit checklist is `TESTING.md` §10.10.
 
-- `project.yml`: HealthKit plus the `background-delivery` entitlement and `NSHealthShareUsageDescription`, on the iPhone only.
-- `HealthReader` (shell): an `HKObserverQuery` and background delivery per linked type, and `HKAnchoredObjectQuery` with anchors saved locally (not synced). It only reads types that some item is linked to.
-- Types: the BP correlation, SpO2 and HR for ViHealth, plus the section 9 set (steps, distance, exercise minutes, stand, workouts, water, sleep, mindfulness). Each type is one daily `Reading`: a sum (steps), a count (BP readings, workouts) or a summary (overnight SpO2 minimum, average and minutes below 90%).
-- A pure aggregation per type, tested against sample sets built in code, including duplicated ViHealth nights.
-- Done: a BP reading on the Checkme completes "Take BP" without opening Rootine (beyond whatever ViHealth needs), and a steps item tracks the Health app.
+- `project.yml`: HealthKit (read only, nothing is written to Health), the `background-delivery` entitlement and `NSHealthShareUsageDescription`, on the iPhone only.
+- `HealthType` lists the types; each is its own `ReadingSource` (`health.steps`, `health.sleep`…), so refreshing one type for a day replaces only that type's readings. Each type is one daily `Reading` per metric:
+
+  | Type | HealthKit | Aggregation | Metric (unit) |
+  |---|---|---|---|
+  | Steps, distance, exercise, water, Time in Daylight | cumulative quantities | sum, read through a statistics query so overlapping iPhone and Watch samples aren't double counted | `steps`, `distance` (km), `exerciseTime` (s), `water` (ml), `timeInDaylight` (s) |
+  | Stand | `appleStandHour`, stood only | distinct hours | `standHours` |
+  | Workouts | `HKWorkout` | count per activity (Running, Walking, Cycling, Swimming, Hiking, Strength, Yoga, HIIT, Other) as the subject; a link without a subject takes all | `workouts` |
+  | Blood pressure | systolic samples, one per reading (the correlation isn't observable on its own) | distinct readings | `bloodPressureReadings` |
+  | Mindfulness | `mindfulSession` | time covered, overlaps once | `mindfulTime` (s) |
+  | Sleep | `sleepAnalysis`, asleep stages only | time covered, overlaps once (Watch plus a sleep app) | `timeAsleep` (s) |
+  | SpO2 | `oxygenSaturation` | minimum, average, time below 90% (a point sample lasts until the next, at most 5 min) | `oxygenMinimum`, `oxygenAverage` (0–1), `oxygenBelow90` (s) |
+  | Heart rate | `heartRate` | minimum, average, maximum | `heartRateMinimum/Average/Maximum` (bpm) |
+
+- **Days:** a sample counts toward the day it starts on. Sleep and SpO2 are overnight: from 18:00 a sample counts toward the next day, so a night belongs to the day it ends.
+- **Duplicates:** exact duplicates (same times, value and activity, as from ViHealth re-syncing a night) count once. Near-duplicates with shifted times would still count twice; watch for them in device check 5.
+- `HealthReader` (shell, started from `RootineApp`): per linked type, an `HKObserverQuery` plus `enableBackgroundDelivery` (`.immediate`; hourly for heart rate, which the Watch records every few minutes); on each wake an `HKAnchoredObjectQuery` (anchor in UserDefaults, not synced) finds the days with new samples, and each of those days plus today is re-read whole, aggregated and written with `replaceReadings`. The automatic events go out with `WatchRelay.send`. An unchanged day isn't rewritten, so repeated wakes don't churn CloudKit records. Only the last 7 days are re-read, so a first run or a late re-sync of old history doesn't write years of readings. Deleted samples carry no date, so a deletion is picked up only when its day is next re-read.
+- It asks for read access only for types some item links to (after the item is saved, while the app is open), and stops observing a type when its last link goes. Test mode never reads Health; switching back to Real catches up.
+- Editor: the Data Source section always shows; its **Health** row opens `HealthLinkEditor`: pick the type (and, for workouts, an activity), then at least / at most / "1 per" (counted items) in the type's own unit: minutes, hours, km, ml or %.
+- **Not in this phase:** State of Mind (section 7: it's read on demand and never copied into a `Reading`, so it needs its own path), the Watch reading its own Time in Daylight for freshness (section 6), and filtering BP or SpO2 to ViHealth by source bundle ID (not needed unless other apps write them).
+- Done when: a BP reading on the Checkme completes "Take BP" without opening Rootine (beyond whatever ViHealth needs), and a steps item tracks the Health app. Both are device checks for Dan.
 
 ### Phase 3: location, saved places and visits
 
@@ -86,7 +102,7 @@ Only if device checks 8–10 confirm the BLE-only M10+ with the expected service
 
 ### Later sources (sections 5–8)
 
-Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Wake-time logging is a second App Intent beside phase 1's. Motion activity comes after phase 2, and its commute labelling after phase 3.
+Not scheduled yet; each reuses a phase above. Time in Daylight was built in phase 2. State of Mind is a HealthKit type but wasn't: it is read, never copied into a `Reading` (section 7), so its "log mood" auto-complete needs its own path beside `HealthReader`. Wake-time logging is a second App Intent beside phase 1's. Motion activity comes after phase 2, and its commute labelling after phase 3.
 
 ### Not planned
 
