@@ -19,8 +19,8 @@ private func median(runs: Int = 5, _ body: () throws -> Void) rethrows -> Durati
 
 /// Budgets for the work the Today list repeats every minute, on a year of history for 60 items (about 12k events).
 /// Measured on the iPhone 17 simulator (M-series Mac, Oct 2026): ledger 5.4 ms, planner 0.15 ms, TodayData from
-/// the store 25 ms, relay encoding 0.9 ms. Budgets are about 3–4× those, with a 2 ms floor, so CI noise doesn't
-/// cause flakes (TESTING.md §6.4).
+/// the store 25 ms, relay encoding 0.9 ms. Budgets are about 3–4× those, with a 2 ms floor, so local noise doesn't
+/// cause flakes (TESTING.md §6.4). CI skips this suite: its runners are too slow and variable (TESTING.md §11).
 @Suite(.tags(.performance))
 @MainActor
 struct PerformanceTests {

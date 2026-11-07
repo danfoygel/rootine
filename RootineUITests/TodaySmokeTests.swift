@@ -135,7 +135,7 @@ final class TodaySmokeTests: XCTestCase {
         edit.tap()
 
         let delete = app.buttons["editor.delete"]
-        XCTAssertTrue(delete.waitForExistence(timeout: timeout))
+        XCTAssertTrue(reveal(delete, in: app))
         delete.tap()
         let confirm = app.buttons["editor.confirmDelete"].firstMatch
         if confirm.waitForExistence(timeout: 2) {

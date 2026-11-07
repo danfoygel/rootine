@@ -191,17 +191,20 @@ struct ItemEditorView: View {
 
     private var dataSourceSection: some View {
         Section {
-            if let link = draft.link {
+            if let link = draft.link, link.placeID == nil {
                 LabeledContent("Linked to", value: link.summary)
             }
             ScreenTimeLinkRow(link: $draft.link, today: today)
+            PlaceLinkRow(link: $draft.link, kind: draft.kind)
             if draft.link != nil {
                 Button("Remove Link", role: .destructive) { draft.link = nil }
             }
         } header: {
             Text("Data Source")
         } footer: {
-            Text("Completes on its own from readings. Removing the link keeps today's progress.")
+            Text(draft.link == nil
+                ? "Link a data source and the item completes on its own."
+                : "Completes on its own from readings. Removing the link keeps today's progress.")
         }
     }
 
