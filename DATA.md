@@ -1,12 +1,12 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. None of the sources is built yet (the shared readings core is; see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Screen Time is built (phase 1), on top of the shared readings core; the other sources aren't yet (see the build plan). On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
 | Source | Feasible? | Best path | Effort | Main risk |
 |---|---|---|---|---|
-| **Screen Time** | **Yes (verified)**: per-app and per-website durations, no public API needed | iOS 26 Shortcuts "Get App & Website Activity" in a nightly automation → Rootine App Intent (Mac Biome helper as fallback) | Low | Depends on Shortcuts automations staying reliable; no pickups/notifications; no real-time data |
+| **Screen Time** | **Yes (verified; built in phase 1)**: per-app and per-website durations, no public API needed | iOS 26 Shortcuts "Get App & Website Activity" in a nightly automation → Rootine App Intent (Mac Biome helper as fallback) | Low | Depends on Shortcuts automations staying reliable; no pickups/notifications; no real-time data |
 | **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
 | **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
 | **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
@@ -19,7 +19,7 @@ Status: research notes from November 2026, gathered before any code was written.
 
 ## Build plan
 
-Status: November 2026. Phase 0 is built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
+Status: November 2026. Phases 0 and 1 are built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
 
 **Working in parallel without conflicts:**
 - Each source lives in its own files: `Shared/Sources/<Source>/` for pure parsing and aggregation (its `ReadingSource` and `ReadingMetric` constants are declared there as `extension ReadingSource { static let … }`), the shell in `Rootine/Sources/<Source>/`, and tests in `RootineTests/<Source>Tests.swift`.
@@ -49,15 +49,21 @@ In `Shared/Scheduling/ItemLink.swift` (`ItemLink`, `ReadingValue`, `ReadingEvalu
 - Editor: a "Data Source" section shows an item's link and can remove it; each source adds its own way to create one. Today rows show the linked value in the row detail (e.g. "52m of 1h").
 - Fixtures: a scenario with readings and linked items.
 
-### Phase 1: Screen Time via Shortcuts
+### Phase 1: Screen Time via Shortcuts (built)
 
-Verified and cheap, and it exercises the whole core end to end: the intent can be run in the simulator from a test, so no hardware is needed to check it.
+Verified and cheap, and it exercises the whole core end to end: the intent's `perform()` runs in a unit test against an in-memory store, so no hardware is needed to check it. Dan's setup steps are in section 1, "Setting it up on the iPhone".
 
-- `LogScreenTimeIntent` (App Intents, iPhone target) takes JSON rows. A pure parser in `Shared/` accepts seconds or the `1h 2m 3s` form, falls back to `Description`, and has fixtures captured from the real shortcut.
-- Store **one `Reading` per app (and per website) per day**: `metric = screenTime`, value in seconds. If an hourly view is wanted later, it goes in one per-day record holding JSON, not 24 rows.
-- Links: `screenTime(app:) atMost N minutes` (limit habit) and `atLeast` (e.g. 30 min in a reading app).
-- Shortcut: the hourly loop collapses to one *Yesterday* call each for Apps and Websites. Build it by hand first, then generate the signed file (section 1).
-- Done: Dan's 06:00 automation runs for a week; yesterday's limit habits resolve each morning and match Settings → Screen Time.
+- **`Shared/Sources/ScreenTime/ScreenTimeReport.swift`:** `ReadingSource.screenTime`, the metrics `ReadingMetric.screenTime` (apps; subject = the app's name) and `.websiteTime` (websites; subject = the domain), and the pure parser. Apps and websites are separate metrics, so a total over all apps doesn't count Safari's websites a second time. It reads:
+  - the action's own text form, one `Name (1h 35m)` per line: what its output becomes when passed straight to a text parameter;
+  - JSON rows of `{app, website, duration, description}`, as one array, one object, or one object per line, with keys in any case. A row that names its website goes to websites, whichever parameter it came in;
+  - durations as seconds, or text: `1h 2m 3s`, `1 hr, 35 min`, `59s`, `1:02:03`. Without a readable duration, the `Name (1h 35m)` description is parsed. Rows with no name or no readable time are counted as skipped.
+- It stores **one `Reading` per app and per website per day** (value in seconds; an app listed twice is added up). If an hourly view is wanted later, it goes in one per-day record holding JSON, not 24 rows.
+- **Unused apps read zero.** Screen Time leaves out apps that weren't used, and "no reading" never counts as zero. So an app or site that an item is linked to, but that is missing from the day, gets a zero reading, as long as that run (apps or websites) returned anything. Without this, "No TikTok" could never complete.
+- **`Rootine/Sources/ScreenTime/LogScreenTimeIntent.swift`** (iPhone only): "Log Screen Time" with three parameters, *Apps*, *Websites* (text) and *Day* (empty = yesterday by the app clock). It calls `replaceReadings(_:from:on:)` on the active `DataStore` container (so in test mode it writes test data), saves, relays the automatic events with `WatchRelay.send`, and returns a summary such as `2026-11-06: 23 apps, 8 websites`. With nothing readable it throws and leaves the day's readings alone. `RootineApp` registers the store with `AppDependencyManager`. No other intents or App Shortcuts are exposed.
+- **Editor:** the Data Source section now always shows; without a link it lists one row per source. *Screen Time* opens `ScreenTimeLinkEditor`: App or Website, the name (free text, plus the names Screen Time reported in the last 14 days, most used first), *At most* (a limit habit) or *At least* (a goal), and minutes a day. It sets `ItemLink(metric:subject:rule: .atMost/.atLeast(seconds), unit: .seconds)`.
+- **Tests:** `RootineTests/ScreenTimeTests.swift`: the parser against fixture text and JSON (seconds vs text durations, description fallback, JSON lines, malformed rows, zero-filling), and the intent's `perform()` against an in-memory `DataStore` (yesterday by default, limit habits completing, re-runs changing nothing, a later run replacing the day, unreadable input changing nothing).
+- Not done: fixtures captured from the real shortcut (add them to the test file once Dan's first run works), and the signed shortcut file (generate it from Dan's iCloud link, see "Distributing the shortcut as a file").
+- Done when: Dan's 06:00 automation runs for a week; yesterday's limit habits resolve each morning and match Settings → Screen Time.
 
 ### Phase 2: HealthKit, ViHealth plus the general section 9 links
 
@@ -135,21 +141,22 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   - Safari's total appears alongside the individual websites, which probably overlap with it.
   - An `in between` range of 9:00–10:00 AM matched that hour in Settings.
   - **Still to test:** a 3-iteration version of the hourly loop, writing `HourStart – HourEnd` plus Description to a note, checked against the Settings hourly chart.
-- **In Rootine:**
-  1. Add an App Intent, `LogScreenTimeIntent`, taking a JSON text parameter (rows of `{hourStart, hourEnd, app, website, duration}`). Notes is only for testing: iOS doesn't let other apps read it, so the data must reach Rootine through this intent. The shortcut builds that JSON:
-     - **Repeat with Each** item, making a **Dictionary** `{app: App, website: Website, duration: Duration}`
-     - then a **Text** of `[` … `]` around the combined dictionaries, or **Get Dictionary** output joined with commas.
-     - Parse `duration` either as seconds or from the `1h 2m 3s` form, whichever Shortcuts produces. Fall back to parsing `Description` if needed.
-  2. The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, so Safari isn't counted twice.
-  3. **One** personal automation, at about 06:00, runs a shortcut that loops over yesterday's 24 hours, so no snapshots or diffs are needed:
-     - `Date("yesterday at 12:00 AM")` → `DayStart`
-     - **Repeat 24×:** `HourStart = DayStart + (Repeat Index − 1) h`; `HourEnd = HourStart + 1 h`; *Get App & Website Activity* in between them (Type = Apps, and optionally a second call with Websites); add `{hour, app, website, duration}` rows to a list
-     - finally, one call to the Rootine intent with the list.
-
-     Running it in the morning lets Screen Time catch up on the day. Rows are stored by hour start time, so the days the clocks change (23 or 25 hours) are handled.
-  4. Rootine stores a CloudKit-compatible `ScreenTimeUsage` model (hourStart, name, bundleID?, kind, seconds, all fields defaulted). It replaces that day's rows on each run, so re-runs are safe, and CloudKit syncs them to the Watch.
-  5. Habits like "under 1h of Facebook" are evaluated from these rows.
-  6. Real-time nudges during the day would still need the threshold approach (#3), or extra midday automations querying `today at 12:00 AM` → now.
+- **In Rootine (built, phase 1):** the `LogScreenTimeIntent` App Intent ("Log Screen Time") and one `Reading` per app and per website per day; see the build plan. Notes is only for testing: iOS doesn't let other apps read it, so the data reaches Rootine through the intent.
+  - The shortcut runs the action twice, once with Type = **Apps** and once with **Websites**, and passes each to its own parameter, so Safari isn't counted twice.
+  - It runs once a day at about 06:00 for *Yesterday*, which gives Screen Time time to catch up on the day. The earlier plan of an hourly loop (24 calls with `in between` ranges) isn't needed for daily limits and goals.
+  - Each run replaces that day's Screen Time readings, so re-runs are safe, and CloudKit syncs the results to the Watch.
+  - Real-time nudges during the day would still need the threshold approach (#3), or extra midday automations querying `Today`.
+- **Setting it up on the iPhone** (by hand; the steps for Dan):
+  1. Install a build with the intent from Xcode, and open Rootine once so Shortcuts sees its actions. Make sure Settings in Rootine is on **Real data**: in test mode the readings go into test data and are lost on the next reset.
+  2. **The shortcut.** Shortcuts → **+**, name it *Rootine Screen Time*, and add:
+     1. *Get App & Website Activity*: Date **Yesterday**, Device **this iPhone** (Big Green Phone), Type **Apps**.
+     2. A second *Get App & Website Activity*: Date **Yesterday**, same device, Type **Websites**.
+     3. Rootine's **Log Screen Time**: tap *Apps* and pick the first action's output (*App & Website Activity*), tap *Websites* and pick the second one's. Leave *Day* empty (yesterday). Check that each field shows the right variable: Shortcuts tends to connect only the most recent output.
+     4. For the first runs only: *Show Result* with the output of Log Screen Time.
+  3. Run it by hand. It should show something like `2026-11-06: 23 apps, 8 websites`. If it fails with "No Screen Time could be read", the activity list didn't arrive as `Name (1h 35m)` text. Then, before step 3, build JSON rows instead: *Repeat with Each* over the Apps output → *Dictionary* with keys `app` (Repeat Item → App), `duration` (Repeat Item → Duration) and `description` (Repeat Item → Description); pass *Repeat Results* to *Apps*. Do the same with `website` for Websites. The intent reads both forms.
+  4. **The automation.** Shortcuts → Automation → **+** → *Time of Day* → **06:00**, *Daily* → **Run Immediately** (and *Notify When Run* off once it works) → *Run Shortcut* → *Rootine Screen Time*. Remove the *Show Result* step once it works, so nothing waits on the screen.
+  5. **Link items.** Edit an item → Data Source → **Screen Time** → App or Website, the name exactly as Screen Time shows it (after the first run, the names it reported are listed to pick from), *At most* or *At least*, and minutes → **Link** → Save. A limit habit such as "Under 1h Instagram" completes the next morning for the day before, as long as the day stayed under the limit; going over leaves it open.
+  6. To share the shortcut as a file later: Share → *Copy iCloud Link*, and give the link to a session (see below).
 - **Distributing the shortcut as a file** (so it needn't be built by hand):
   - iOS imports only **signed** shortcut files. Sign on the Mac with `shortcuts sign --mode anyone --input in.shortcut --output out.shortcut` and AirDrop the result to the iPhone, or share an iCloud link from a device.
   - Generating the plist needs the new action's internal identifier and parameter keys, which aren't documented. Get them from an existing shortcut's iCloud link: the record JSON includes the unsigned file. Fetching it needs `www.icloud.com` (and probably `icloud-content.com`) allowed in the cloud environment's network settings.
@@ -225,8 +232,8 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
 - **iOS 27:** no new public read API found.
 
 ### Recommendation
-1. **Build the Shortcuts route first.** It's verified on the device. Confirm the per-item fields, then write `LogScreenTimeIntent` and the `ScreenTimeAppDay` model.
-2. **Only if Shortcuts proves unreliable over time, or Mac usage is wanted too:** run the Mac checks below. If iPhone segments are present and fresh, prototype with `runesleo/iphone-usage` → JSON, then build the `RootineMac` helper writing `ScreenTimeAppDay` to CloudKit. Start archiving early, because the Mac only keeps about 4 weeks.
+1. **Build the Shortcuts route first.** It's verified on the device. *Done in phase 1:* `LogScreenTimeIntent` writing daily `Reading`s.
+2. **Only if Shortcuts proves unreliable over time, or Mac usage is wanted too:** run the Mac checks below. If iPhone segments are present and fresh, prototype with `runesleo/iphone-usage` → JSON, then build the `RootineMac` helper writing daily Screen Time `Reading`s to CloudKit. Start archiving early, because the Mac only keeps about 4 weeks.
 3. **The threshold ladder** only for real-time on-phone triggers (e.g. a nudge at 45 minutes of social media), not as the data source.
 
 ### Sources
@@ -772,7 +779,9 @@ These answer the open questions above, and none needs code.
 1. ~~Shortcuts action check~~: done 2026-11-04. It runs unattended, matches Settings, has the fields App / Website / Duration / Description, and the `in between` range accepts times. Still to do:
    - Run a 3-hour version of the hourly loop and compare with Settings' hourly chart.
    - Optional: in a Repeat with Each loop, tap *Repeat Item → App* to see whether it exposes a bundle identifier.
-   - When the App Intent exists: share the shortcut as an iCloud link, so the importable file can be generated.
+   - Set up the shortcut and the 06:00 automation (section 1, "Setting it up on the iPhone"), and run the Screen Time checks in `TESTING.md` §10.10.
+   - Paste the output of a first run (and, if the text form fails, the JSON rows) into a session, so the tests get fixtures from the real shortcut.
+   - Share the shortcut as an iCloud link, so the importable file can be generated.
 2. Only needed for the Mac fallback. On the Mac (Terminal needs Full Disk Access; all commands are read-only):
    - `sw_vers`; confirm Screen Time → *Share Across Devices* is on, on both iPhone and Mac.
    - `ls -lt ~/Library/Biome/streams/restricted/App.InFocus/remote/*/ | head`: one UUID folder per device, with recent segment files?

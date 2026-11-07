@@ -114,6 +114,7 @@ targets:
     sources:
       - RootineTests
       - Shared
+      - Rootine/Sources/ScreenTime/LogScreenTimeIntent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.tests

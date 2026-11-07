@@ -109,6 +109,7 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
+- **`ScreenTimeTests.swift`** (DATA.md phase 1): the Screen Time parser against fixture text and JSON: the action's `Name (1h 35m)` lines, JSON rows with seconds or text durations, the description fallback, keys in any case, one object per line, and malformed rows counted as skipped; apps and websites kept apart; one reading per app per day, with zero readings for linked apps that a non-empty run left out. `LogScreenTimeIntent.perform()` (iOS bundle only) runs against an in-memory `DataStore`: it logs yesterday by default and completes limit habits for that day, a re-run changes nothing, a later run replaces the day, and unreadable input throws and changes nothing. The intent's store is set directly on its `@AppDependency`, which works outside the App Intents runtime.
 - **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
@@ -419,6 +420,17 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - [ ] Back to Real data: the real list and complication are exactly as before, and real changes made on the other device during the test session have synced in.
 - [ ] Export Real Data, then Load Export into Test Data: the test list matches the real one until the next reset.
 - [ ] *(when built)* In test mode, reminders are for test items only and real ones don't fire; switching back restores the real reminders.
+
+### 10.10 Screen Time
+
+Set up as in DATA.md section 1, "Setting it up on the iPhone", with Rootine on Real data. Compare against Settings → Screen Time → See All App & Website Activity → Day, for the previous day and this iPhone.
+- [ ] Running the shortcut by hand shows `<yesterday>: N apps, M websites` with no unreadable rows. If it fails, the JSON-rows fallback in the setup steps works instead.
+- [ ] In an item's Data Source → Screen Time, the apps (and, under Website, the domains) from the run are offered, most used first, in the same order as Settings.
+- [ ] A limit habit under its limit (e.g. "Under 1h Instagram") shows as done for yesterday after the run, on the iPhone and then the Watch; one over its limit stays open. An app not used at all completes a limit on it.
+- [ ] A goal (e.g. at least 30 min in Kindle) completes once the day reached it.
+- [ ] Running the shortcut a second time changes nothing (no extra completions). Un-checking an automatic completion by hand, then running again, leaves it un-checked.
+- [ ] The 06:00 automation runs without a prompt while the phone is locked, every morning for a week, and each morning's results match Settings.
+- [ ] In test mode, a run writes test data only, and the real data is untouched after switching back.
 
 ## 11. CI: GitHub Actions
 
