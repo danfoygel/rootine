@@ -20,7 +20,7 @@ Everything here exists unless marked **(planned)**. Section 12 lists what's left
 | iOS unit tests | `RootineTests` (hostless; `Shared/` compiled in), ~400 cases | iPhone simulator | `scripts/check.sh`, every PR |
 | watchOS unit tests | `RootineWatchTests` (same sources, built for watchOS, hostless) | Watch simulator | `scripts/check.sh`, every PR |
 | Performance budgets | `PerformanceTests` (tag `performance`, in both unit test targets; §6.4) | iPhone and Watch simulators | `scripts/check.sh` locally; **not in CI** (§11) |
-| iPhone UI smoke | `RootineUITests` (XCUITest, hosted by `Rootine`), own scheme, 9 flows | iPhone simulator | `scripts/check.sh --ui`, weekly CI, on demand |
+| iPhone UI smoke | `RootineUITests` (XCUITest, hosted by `Rootine`), own scheme, 10 flows | iPhone simulator | `scripts/check.sh --ui`, weekly CI, on demand |
 | Device checklist | Section 10 | Big Green Phone + Series 8 Watch | By area touched; full pass before relying on a build day to day |
 
 ## 3. Running tests
@@ -110,7 +110,13 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
-- **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
+- **`LocationTests.swift`** (DATA.md phase 3a):
+  - place matching within radius plus accuracy, nearest first, and nothing for approximate fixes;
+  - `VisitLog` merging: an arrival then a departure fill in one visit; repeated `CLVisit`s and `CLMonitor` enter/exit events for one stay stay one visit; a brief exit and return; arriving elsewhere closes an open visit; a stale open visit is capped;
+  - readings: one per visit in whole minutes, on the arrival day, none under the minimum dwell or for unmatched visits, and open visits counting up to their cap;
+  - "Save this place?" clustering, retention cut-offs and the stale-visit check.
+  - Through a store: a departure completes a visit habit once; repeated monitor and visit events don't double-complete; minutes add up across visits; open visits catch up on refresh; saving a place matches earlier visits; retention pruning and delete-history remove visits and readings but keep completions; deleting a place removes only its own history.
+- **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item`, `RootineSchemaV2.Reading` etc.). One test per frozen version writes a store with it (V1, V2), opens it with the current schema and `RootineMigrationPlan`, and checks that the data survives with the new fields at their defaults and the new models (`Place`, `PlaceVisit`) empty and usable. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
 
@@ -312,15 +318,16 @@ Test mode has no CloudKit, so the CloudKit checks in §10.2 use the real store w
 
 ## 8. iPhone UI smoke suite
 
-`RootineUITests/TodaySmokeTests.swift` runs in its own scheme, so the `Rootine` scheme's test action stays fast. Each test launches with `-RootineInMemoryStore -RootineNoRelay -RootineFixedNow 2026-10-30T09:30 -RootineTimeZone America/Los_Angeles`, a seed and a layout. Tests find elements by accessibility identifier:
+`RootineUITests/TodaySmokeTests.swift` and `PlacesSmokeTests.swift` run in their own scheme, so the `Rootine` scheme's test action stays fast. Each test launches with `-RootineInMemoryStore -RootineNoRelay -RootineFixedNow 2026-10-30T09:30 -RootineTimeZone America/Los_Angeles`, a seed and a layout. Tests find elements by accessibility identifier:
 - `today.addButton`, `today.layoutMenu`, `today.settingsButton`;
 - `row.<name>`, `row.<name>.control`, `row.<name>.edit`, `row.<name>.detail`;
-- `editor.name`, `editor.save`, `editor.delete`;
+- `editor.name`, `editor.save`, `editor.delete`, `editor.placeLink`;
+- `settings.places`, `places.add`, `place.<name>`, `place.name`, `place.save`;
 - `testModeBanner`.
 
 Lists only build rows that are on screen, so `reveal(_:in:)` scrolls until a row appears. There is no `sleep`.
 
-The nine flows:
+The ten flows:
 
 1. Empty store: Save is disabled while the name is empty; adding a habit lists it.
 2. Check off a habit, then un-check it.
@@ -331,6 +338,7 @@ The nine flows:
 7. `overdue` at 09:30, by urgency: carried-over to-dos first, then Vitamins and Stretch, with the right detail text.
 8. `everyPattern`: a times-per-week item already met this week isn't listed.
 9. Test mode: the TEST DATA bar shows, and Reset Test Data undoes a check-off. This flow uses a real local test store, so it leaves the simulator in test mode; switch back in Settings before using that simulator by hand.
+10. Places: save a place from Settings (Save is disabled until it has a name), then link an item to it from the editor's Data Source section ("Gym · visit of 30 min"). Location services are off with an in-memory store, so no visits are involved.
 
 There are no Watch UI tests: watchOS XCUITest is slow and flaky. The Watch views stay thin, the logic is covered in both unit bundles, and the Watch UI is covered by §10.
 
@@ -420,6 +428,19 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - [ ] Back to Real data: the real list and complication are exactly as before, and real changes made on the other device during the test session have synced in.
 - [ ] Export Real Data, then Load Export into Test Data: the test list matches the real one until the next reset.
 - [ ] *(when built)* In test mode, reminders are for test items only and real ones don't fire; switching back restores the real reminders.
+
+### 10.10 Location (iPhone)
+
+Setup: Settings → Places → Allow Location Access (When In Use), then turn on **Record Visits** and accept **Change to Always Allow**. Check Settings → Rootine → Location shows **Always** with **Precise Location** on. Save Home, Work and Gym, and link a habit to Gym (Visit, at least 30 min).
+- [ ] Turning Precise Location off shows the warning in Places; turning it back on clears it.
+- [ ] A gym visit of 30+ minutes completes the habit by itself within a few minutes of leaving, without opening Rootine, and the Watch shows it done.
+- [ ] Force-quit Rootine, then visit a saved place: the visit is still recorded (the app is relaunched in the background).
+- [ ] A week of real visits: each day the gym habit completes after a visit and not on other days, and no visit is counted twice. Note any missed or doubled visits in the PR.
+- [ ] A place you visit often but haven't saved appears under "Save This Place?" after two stays; saving it counts the earlier visits, and "Not Now" makes it go away.
+- [ ] **Stale-visit warning (iOS 26 regression, FB21022960):** Places shows "Last Visit" updating every day. If it stops for 3 days, Places shows the warning. Note the iOS version, and whether a restart brings visits back.
+- [ ] Keep History at 30 days removes older visits at the next launch; Delete Location History empties history but leaves completed items done.
+- [ ] Battery: with Record Visits on for a week, Settings → Battery shows Rootine with little background use.
+- [ ] In test mode, real visits go to the test store and the real store's places aren't monitored; switching back restores them.
 
 ## 11. CI: GitHub Actions
 
