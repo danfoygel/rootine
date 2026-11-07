@@ -263,7 +263,7 @@ struct ReadingStoreTests {
     }
 }
 
-/// A store written with the frozen V1 schema opens under the current one with nothing lost (TESTING.md §4.3).
+/// Stores written with each frozen schema open under the current one with nothing lost (TESTING.md §4.3).
 @MainActor
 struct MigrationTests {
     @Test func v1StoreOpensUnderTheCurrentSchema() throws {
@@ -309,5 +309,57 @@ struct MigrationTests {
         #expect(event.itemID == itemID)
         #expect(event.origin == .manual)
         #expect(try context.fetchCount(FetchDescriptor<Reading>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<Place>()) == 0)
+    }
+
+    @Test func v2StoreOpensUnderTheCurrentSchema() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "Migration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Rootine.store")
+
+        let itemID = UUID()
+        let link = ItemLink(metric: ReadingMetric(rawValue: "steps"), rule: .counts(per: 1))
+        do {
+            let schema = Schema(versionedSchema: RootineSchemaV2.self)
+            let container = try ModelContainer(
+                for: schema,
+                configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
+            )
+            let context = container.mainContext
+            let item = RootineSchemaV2.Item(name: "Steps")
+            item.id = itemID
+            item.linkData = try JSONEncoder().encode(link)
+            context.insert(item)
+            let event = RootineSchemaV2.CompletionEvent(itemID: itemID, dayKey: fixedToday.key, amount: 6214)
+            event.originRaw = "auto"
+            context.insert(event)
+            context.insert(RootineSchemaV2.Reading(sourceRaw: "health", metricRaw: "steps", dayKey: fixedToday.key,
+                                                   value: 6214))
+            try context.save()
+        }
+
+        let container = try ModelContainer(
+            for: RootineStore.schema,
+            migrationPlan: RootineMigrationPlan.self,
+            configurations: ModelConfiguration(schema: RootineStore.schema, url: url, cloudKitDatabase: .none)
+        )
+        let context = container.mainContext
+        let item = try #require(try context.fetch(FetchDescriptor<Item>()).first)
+        #expect(item.id == itemID)
+        #expect(item.link == link)
+        let event = try #require(try context.fetch(FetchDescriptor<CompletionEvent>()).first)
+        #expect(event.origin == .auto)
+        #expect(event.amount == 6214)
+        let reading = try #require(try context.fetch(FetchDescriptor<Reading>()).first)
+        #expect(reading.metricRaw == "steps")
+        #expect(reading.value == 6214)
+        #expect(try context.fetchCount(FetchDescriptor<Place>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<PlaceVisit>()) == 0)
+
+        // The new models work in the migrated store.
+        context.insert(Place(name: "Gym", coordinate: Coordinate(latitude: 1, longitude: 2)))
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<Place>()).first?.radius == LocationConstants.defaultRadius)
     }
 }
