@@ -49,6 +49,9 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # Location (DATA.md phase 3a): visits and CLMonitor need no `location` background mode.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Shows where you are when you save a place."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "Records visits to your places so habits like Gym can complete themselves."
         INFOPLIST_KEY_NSMotionUsageDescription: Rootine reads your walking, driving and other motion activity to complete items linked to it.
 
   RootineWatch:

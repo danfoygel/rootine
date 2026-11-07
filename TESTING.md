@@ -19,7 +19,8 @@ Everything here exists unless marked **(planned)**. Section 12 lists what's left
 | Static checks | `swiftformat --lint`, `swiftlint lint --strict`, both schemes building | Mac | `scripts/check.sh`, every PR |
 | iOS unit tests | `RootineTests` (hostless; `Shared/` compiled in), ~400 cases | iPhone simulator | `scripts/check.sh`, every PR |
 | watchOS unit tests | `RootineWatchTests` (same sources, built for watchOS, hostless) | Watch simulator | `scripts/check.sh`, every PR |
-| iPhone UI smoke | `RootineUITests` (XCUITest, hosted by `Rootine`), own scheme, 9 flows | iPhone simulator | `scripts/check.sh --ui`, weekly CI, on demand |
+| Performance budgets | `PerformanceTests` (tag `performance`, in both unit test targets; §6.4) | iPhone and Watch simulators | `scripts/check.sh` locally; **not in CI** (§11) |
+| iPhone UI smoke | `RootineUITests` (XCUITest, hosted by `Rootine`), own scheme, 10 flows | iPhone simulator | `scripts/check.sh --ui`, weekly CI, on demand |
 | Device checklist | Section 10 | Big Green Phone + Series 8 Watch | By area touched; full pass before relying on a build day to day |
 
 ## 3. Running tests
@@ -40,7 +41,7 @@ Options:
 - `--fast` runs only the iOS unit tests;
 - `--sim` / `--watch-sim` choose simulators, by name or as `id=<UDID>`.
 
-`XCODEBUILD_FLAGS` passes extra arguments to xcodebuild (CI uses `CODE_SIGNING_ALLOWED=NO`). Results go to `build/results/*.xcresult`. xcbeautify hides crashes, so on a failure the script lists the failing tests from the result bundle.
+`XCODEBUILD_FLAGS` passes extra arguments to xcodebuild (CI uses `CODE_SIGNING_ALLOWED=NO`). When the `CI` environment variable is set, as GitHub Actions sets it, both unit test runs skip `PerformanceTests` (§11); `CI=1 scripts/check.sh` reproduces a CI run locally. Results go to `build/results/*.xcresult`. xcbeautify hides crashes, so on a failure the script lists the failing tests from the result bundle.
 
 With a warm build, the full gate takes about 30 seconds, and about 3 minutes with `--ui`.
 
@@ -110,7 +111,13 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
 - **`MotionTests.swift`:** the motion summariser (DATA.md section 8): one label per event by priority, with several flags, no flags and low confidence; segments ending at the next event or now; capped gaps; merging same-kind neighbours and absorbing blips under 2 min (and not across gaps or between different kinds); per-kind minimum durations; midnight splits after merging; days before the query's start left out; completion an hour after a day ends; readings per day (zeros only on complete days, none for a day with no data); the import window's first and resume days; and re-importing through a real store completing a walk habit at once and a no-driving limit only once the day is complete.
-- **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
+- **`LocationTests.swift`** (DATA.md phase 3a):
+  - place matching within radius plus accuracy, nearest first, and nothing for approximate fixes;
+  - `VisitLog` merging: an arrival then a departure fill in one visit; repeated `CLVisit`s and `CLMonitor` enter/exit events for one stay stay one visit; a brief exit and return; arriving elsewhere closes an open visit; a stale open visit is capped;
+  - readings: one per visit in whole minutes, on the arrival day, none under the minimum dwell or for unmatched visits, and open visits counting up to their cap;
+  - "Save this place?" clustering, retention cut-offs and the stale-visit check.
+  - Through a store: a departure completes a visit habit once; repeated monitor and visit events don't double-complete; minutes add up across visits; open visits catch up on refresh; saving a place matches earlier visits; retention pruning and delete-history remove visits and readings but keep completions; deleting a place removes only its own history.
+- **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item`, `RootineSchemaV2.Reading` etc.). One test per frozen version writes a store with it (V1, V2), opens it with the current schema and `RootineMigrationPlan`, and checks that the data survives with the new fields at their defaults and the new models (`Place`, `PlaceVisit`) empty and usable. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
 
@@ -254,7 +261,7 @@ A `Behaviour` covers:
 
 Presets are `.diligent`, `.typical`, `.lapsing` and `.chaotic`.
 
-**Performance budgets** on `heavy` (`PerformanceTests`) take the median of 5 runs. They were measured on the iPhone 17 simulator in October 2026, and each budget is about 3–4× the measurement, with a 2 ms floor:
+**Performance budgets** on `heavy` (`PerformanceTests`) take the median of 5 runs. They were measured on the iPhone 17 simulator in October 2026, and each budget is about 3–4× the measurement, with a 2 ms floor. They are enforced by the local gate only; CI skips them (§11):
 
 | Step | Measured | Budget |
 |---|---|---|
@@ -312,15 +319,16 @@ Test mode has no CloudKit, so the CloudKit checks in §10.2 use the real store w
 
 ## 8. iPhone UI smoke suite
 
-`RootineUITests/TodaySmokeTests.swift` runs in its own scheme, so the `Rootine` scheme's test action stays fast. Each test launches with `-RootineInMemoryStore -RootineNoRelay -RootineFixedNow 2026-10-30T09:30 -RootineTimeZone America/Los_Angeles`, a seed and a layout. Tests find elements by accessibility identifier:
+`RootineUITests/TodaySmokeTests.swift` and `PlacesSmokeTests.swift` run in their own scheme, so the `Rootine` scheme's test action stays fast. Each test launches with `-RootineInMemoryStore -RootineNoRelay -RootineFixedNow 2026-10-30T09:30 -RootineTimeZone America/Los_Angeles`, a seed and a layout. Tests find elements by accessibility identifier:
 - `today.addButton`, `today.layoutMenu`, `today.settingsButton`;
 - `row.<name>`, `row.<name>.control`, `row.<name>.edit`, `row.<name>.detail`;
-- `editor.name`, `editor.save`, `editor.delete`;
+- `editor.name`, `editor.save`, `editor.delete`, `editor.placeLink`;
+- `settings.places`, `places.add`, `place.<name>`, `place.name`, `place.save`;
 - `testModeBanner`.
 
 Lists only build rows that are on screen, so `reveal(_:in:)` scrolls until a row appears. There is no `sleep`.
 
-The nine flows:
+The ten flows:
 
 1. Empty store: Save is disabled while the name is empty; adding a habit lists it.
 2. Check off a habit, then un-check it.
@@ -331,6 +339,7 @@ The nine flows:
 7. `overdue` at 09:30, by urgency: carried-over to-dos first, then Vitamins and Stretch, with the right detail text.
 8. `everyPattern`: a times-per-week item already met this week isn't listed.
 9. Test mode: the TEST DATA bar shows, and Reset Test Data undoes a check-off. This flow uses a real local test store, so it leaves the simulator in test mode; switch back in Settings before using that simulator by hand.
+10. Places: save a place from Settings (Save is disabled until it has a name), then link an item to it from the editor's Data Source section ("Gym · visit of 30 min"). Location services are off with an in-memory store, so no visits are involved.
 
 There are no Watch UI tests: watchOS XCUITest is slow and flaky. The Watch views stay thin, the logic is covered in both unit bundles, and the Watch UI is covered by §10.
 
@@ -421,18 +430,31 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - [ ] Export Real Data, then Load Export into Test Data: the test list matches the real one until the next reset.
 - [ ] *(when built)* In test mode, reminders are for test items only and real ones don't fire; switching back restores the real reminders.
 
-### 10.10 Motion activity
+### 10.10 Location (iPhone)
+
+Setup: Settings → Places → Allow Location Access (When In Use), then turn on **Record Visits** and accept **Change to Always Allow**. Check Settings → Rootine → Location shows **Always** with **Precise Location** on. Save Home, Work and Gym, and link a habit to Gym (Visit, at least 30 min).
+- [ ] Turning Precise Location off shows the warning in Places; turning it back on clears it.
+- [ ] A gym visit of 30+ minutes completes the habit by itself within a few minutes of leaving, without opening Rootine, and the Watch shows it done.
+- [ ] Force-quit Rootine, then visit a saved place: the visit is still recorded (the app is relaunched in the background).
+- [ ] A week of real visits: each day the gym habit completes after a visit and not on other days, and no visit is counted twice. Note any missed or doubled visits in the PR.
+- [ ] A place you visit often but haven't saved appears under "Save This Place?" after two stays; saving it counts the earlier visits, and "Not Now" makes it go away.
+- [ ] **Stale-visit warning (iOS 26 regression, FB21022960):** Places shows "Last Visit" updating every day. If it stops for 3 days, Places shows the warning. Note the iOS version, and whether a restart brings visits back.
+- [ ] Keep History at 30 days removes older visits at the next launch; Delete Location History empties history but leaves completed items done.
+- [ ] Battery: with Record Visits on for a week, Settings → Battery shows Rootine with little background use.
+- [ ] In test mode, real visits go to the test store and the real store's places aren't monitored; switching back restores them.
+
+### 10.11 Motion activity
 
 iPhone only, on the real store (the simulator records no motion, and test mode doesn't import). Use "TEST …" items (§6.7). First check that Settings → Privacy & Security → Motion & Fitness → Fitness Tracking is on (DATA.md check 21).
 
-- [ ] Fresh install: no motion prompt at launch. Edit a "TEST Walk" habit → Data Source → **Add Motion…**: the Motion & Fitness prompt appears; allow it. The editor then says "Updated <time>."
+- [ ] Fresh install: no motion prompt at launch. Edit a "TEST Walk" habit → Data Source → **Add Motion**: the Motion & Fitness prompt appears; allow it. The editor then says "Updated <time>."
 - [ ] Set it to Walking + Running, at least 10 min, and save. Walk for 15 minutes with the phone in a pocket, then bring Rootine to the foreground: the item completes on its own and its row shows e.g. "16 min of 10 min" (results can lag a few minutes; foreground again if not).
-- [ ] A "TEST Driving" counted item (target 60, Add Motion… → Driving, 1 per minute): after a known drive of at least 10 minutes, its total is within a few minutes of the drive's length. Note how far off it is, and whether stops at lights split it.
+- [ ] A "TEST Driving" counted item (target 60, Add Motion → Driving, 1 per minute): after a known drive of at least 10 minutes, its total is within a few minutes of the drive's length. Note how far off it is, and whether stops at lights split it.
 - [ ] A "TEST No driving" habit (at most 0 driving minutes): not done during a day without driving; done the next morning after opening Rootine (an hour after midnight or later). On a day with a drive it stays not done.
 - [ ] Open the app twice in a row, and again the next day: totals don't double and no extra completions appear.
 - [ ] Don't open Rootine for 2–3 days, then open it: the missed days fill in. Settings → Export Real Data shows `auto` events for the motion items on those days.
 - [ ] The Watch shows the automatic completions (through the relay or CloudKit).
-- [ ] Turn Fitness Tracking off and relaunch: Add Motion… shows the "Fitness Tracking is off" message, and nothing crashes. Turn it back on. With Rootine's own Motion & Fitness permission off (Settings → Apps → Rootine), it shows the "can't read motion activity" message.
+- [ ] Turn Fitness Tracking off and relaunch: Add Motion shows the "Fitness Tracking is off" message, and nothing crashes. Turn it back on. With Rootine's own Motion & Fitness permission off (Settings → Apps → Rootine), it shows the "can't read motion activity" message.
 - [ ] In test mode, opening the app imports nothing (the motion editor says so), and back in Real data the real items are unchanged.
 
 ## 11. CI: GitHub Actions
@@ -441,9 +463,10 @@ iPhone only, on the real store (the simulator records no motion, and test mode d
 - It selects Xcode 26.3, falling back to the newest 26.x with a warning.
 - It installs the Homebrew tools and picks the newest iPhone and Watch simulators by UDID.
 - Then it runs `scripts/check.sh` with `CODE_SIGNING_ALLOWED=NO`. Nothing under test uses CloudKit, so no signing secrets are needed.
+- **Performance budgets don't run in CI.** GitHub sets `CI`, and `check.sh` then skips `PerformanceTests` on iOS and watchOS. The hosted macOS runners are too slow and variable for wall-clock budgets: `TodayData` from the store measured 0.68 s and 1.55 s there against an 80 ms budget (25 ms locally), and the suite took anywhere from 3.5 s to 17 s, against about 1.3 s locally. The local `scripts/check.sh` still enforces them, so run it before pushing a change on the per-minute path.
 
 When it runs:
-- **PRs to `main` and pushes to `main`:** lint, both builds, iOS and watchOS unit tests, and coverage in the job summary.
+- **PRs to `main` and pushes to `main`:** lint, both builds, iOS and watchOS unit tests (without the performance budgets), and coverage in the job summary.
 - **UI smoke suite:** weekly (Mondays 09:00 UTC) and on demand (`workflow_dispatch`, with `ui` on by default), to save the private repo's limited macOS minutes. For PRs that change views, run `scripts/check.sh --ui` locally.
 
 Cost controls:

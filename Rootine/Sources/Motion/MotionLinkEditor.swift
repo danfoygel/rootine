@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The editor's Data Source row for motion: "Add Motion…" with no link, or the motion link to edit. Hidden
+/// The editor's Data Source row for motion: "Add Motion" with no link, or the motion link to edit. Hidden
 /// while the item is linked to another source.
 struct MotionLinkRow: View {
     @Binding var link: ItemLink?
@@ -14,7 +14,7 @@ struct MotionLinkRow: View {
                 if let link, let activity = MotionActivity(metric: link.metric) {
                     LabeledContent("Motion", value: activity.title)
                 } else {
-                    Text("Add Motion…")
+                    Label("Add Motion", systemImage: "figure.walk")
                 }
             }
         }
