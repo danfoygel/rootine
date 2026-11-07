@@ -8,6 +8,7 @@
 #   scripts/check.sh --sim "iPhone 17" --watch-sim "Apple Watch Series 11 (42mm)"
 #
 # Extra xcodebuild arguments can be passed in XCODEBUILD_FLAGS (CI uses CODE_SIGNING_ALLOWED=NO).
+# With CI set (GitHub Actions sets it), the unit tests leave out the PerformanceTests budgets.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -29,7 +30,7 @@ while [[ $# -gt 0 ]]; do
         --fast) fast=1 ;;
         --sim) sim="$2"; shift ;;
         --watch-sim) watch_sim="$2"; shift ;;
-        -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -43,6 +44,16 @@ ios_destination="$(destination iOS "$sim")"
 watch_destination="$(destination watchOS "$watch_sim")"
 results=build/results
 read -r -a extra_flags <<< "${XCODEBUILD_FLAGS:-}"
+
+# CI runners are too slow and variable for wall-clock budgets (TESTING.md section 11); the local gate keeps them.
+ios_skip=()
+watch_skip=()
+perf_note=""
+if [[ -n "${CI:-}" ]]; then
+    ios_skip=(-skip-testing:RootineTests/PerformanceTests)
+    watch_skip=(-skip-testing:RootineWatchTests/PerformanceTests)
+    perf_note=", without performance budgets"
+fi
 
 if command -v xcbeautify > /dev/null; then
     pretty=(xcbeautify --quiet --disable-logging)
@@ -60,9 +71,10 @@ xcb() {
 
 run_tests() {
     local scheme="$1" destination="$2" name="$3"
+    shift 3
     rm -rf "$results/$name.xcresult"
     if ! xcb -scheme "$scheme" -destination "$destination" -enableCodeCoverage YES \
-        -resultBundlePath "$results/$name.xcresult" test; then
+        -resultBundlePath "$results/$name.xcresult" test "$@"; then
         report_failures "$results/$name.xcresult"
         return 1
     fi
@@ -105,8 +117,8 @@ step "Generate project"
 xcodegen generate --quiet
 
 if [[ $fast == 1 ]]; then
-    step "iOS unit tests ($sim)"
-    run_tests Rootine "$ios_destination" unit-ios
+    step "iOS unit tests ($sim$perf_note)"
+    run_tests Rootine "$ios_destination" unit-ios ${ios_skip[@]+"${ios_skip[@]}"}
     exit 0
 fi
 
@@ -121,11 +133,11 @@ xcb -scheme Rootine -destination "$ios_destination" build
 step "Build Watch app"
 xcb -scheme RootineWatch -destination "$watch_destination" build
 
-step "iOS unit tests ($sim)"
-run_tests Rootine "$ios_destination" unit-ios
+step "iOS unit tests ($sim$perf_note)"
+run_tests Rootine "$ios_destination" unit-ios ${ios_skip[@]+"${ios_skip[@]}"}
 
-step "watchOS unit tests ($watch_sim)"
-run_tests RootineWatch "$watch_destination" unit-watchos
+step "watchOS unit tests ($watch_sim$perf_note)"
+run_tests RootineWatch "$watch_destination" unit-watchos ${watch_skip[@]+"${watch_skip[@]}"}
 
 if [[ $run_ui == 1 ]]; then
     step "iPhone UI smoke tests ($sim)"
