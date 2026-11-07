@@ -37,10 +37,13 @@ struct LogScreenTimeIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let report = ScreenTimeReport(apps: apps, websites: websites)
-        guard !report.isEmpty else {
-            throw LogScreenTimeError.nothingRead(skipped: report.skipped)
-        }
         let day = day.map { LocalDay($0) } ?? store.clock.today.adding(days: -1)
+        guard !report.isEmpty else {
+            // Nothing at all is normal just after midnight, when today has no activity yet: no error, so the
+            // automation stays quiet. Rows that couldn't be read are worth an error.
+            guard report.skipped == 0 else { throw LogScreenTimeError.unreadable(skipped: report.skipped) }
+            return .result(value: "\(day): no Screen Time yet")
+        }
         let context = store.container.mainContext
         let links = try context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.linkData != nil }))
             .compactMap(\.link)
@@ -71,15 +74,13 @@ struct LogScreenTimeIntent: AppIntent {
 }
 
 enum LogScreenTimeError: Error, CustomLocalizedStringResourceConvertible {
-    /// Nothing usable came in, so the day's readings are left as they were.
-    case nothingRead(skipped: Int)
+    /// Rows came in but none could be read, so the day's readings are left as they were.
+    case unreadable(skipped: Int)
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
-        case let .nothingRead(skipped) where skipped > 0:
+        case let .unreadable(skipped):
             "No Screen Time could be read: \(skipped) rows had no name or duration."
-        case .nothingRead:
-            "No Screen Time came in. Check that Get App & Website Activity is passed to Apps or Websites."
         }
     }
 }

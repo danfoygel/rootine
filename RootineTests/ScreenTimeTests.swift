@@ -328,8 +328,10 @@ struct SameDayReadingTests {
 
             intent.apps = #"[{"app": "Instagram"}]"#
             await #expect(throws: LogScreenTimeError.self) { try await intent.perform() }
+            // Nothing at all (today, just after midnight) isn't an error.
             intent.apps = nil
-            await #expect(throws: LogScreenTimeError.self) { try await intent.perform() }
+            intent.websites = ""
+            _ = try await intent.perform()
             #expect(try readings(in: store).map(\.value) == [3000])
         }
 
