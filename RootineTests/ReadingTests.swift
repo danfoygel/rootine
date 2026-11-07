@@ -249,6 +249,17 @@ struct ReadingStoreTests {
         let instagram = try #require(try entry("Under 1h Instagram"))
         #expect(instagram.readingLabel(from: readings, on: fixedToday) == "52m of 1h")
         #expect(try entry("Steps")?.readingLabel(from: readings, on: fixedToday) == nil)
+
+        // Health-linked items, from samples aggregated as HealthReader does.
+        #expect(try entry("Take BP")?.isDone == true)
+        #expect(try entry("Sleep 7h")?.isDone == false)
+        #expect(try entry("Sleep 7h")?.readingLabel(from: readings, on: fixedToday) == "6h 30m of 7h")
+        #expect(try entry("Water")?.total == 750)
+        #expect(try entry("Under 5m low SpO2")?.isDone == true)
+        #expect(try entry("Under 5m low SpO2")?.readingLabel(from: readings, on: fixedToday) == "2m of 5m")
+        #expect(try entry("Work out")?.isDone == true)
+        #expect(try entry("20m in daylight")?.readingLabel(from: readings, on: fixedToday) == "15m of 20m")
+        #expect(readings.filter { $0.source.rawValue.hasPrefix("health.") }.count == 8)
     }
 }
 
