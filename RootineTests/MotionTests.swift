@@ -157,7 +157,7 @@ struct MotionDaySummaryTests {
         #expect(today.isComplete == false)
     }
 
-    @Test func segmentsAreSplitAtMidnight() throws {
+    @Test func segmentsAreSplitAtMidnight() {
         let yesterday = fixedToday.adding(days: -1)
         let events = [event(at(23, 50, on: yesterday), .automotive), event(at(0, 20), .stationary)]
         let days = summariser.summarise(events, from: at(0, on: yesterday), now: at(2))
@@ -251,6 +251,22 @@ struct MotionImportWindowTests {
         let early = summariser.summarise(events, from: at(0, on: fixedToday.adding(days: -2)), now: at(0, 30))
         #expect(MotionImportWindow.resume(after: early) == at(0, on: fixedToday.adding(days: -1)))
         #expect(MotionImportWindow.resume(after: []) == nil)
+    }
+}
+
+struct MotionLinkTests {
+    @Test func everyActivityMapsToItsOwnMetric() {
+        for activity in MotionActivity.allCases {
+            #expect(MotionActivity(metric: activity.metric) == activity)
+            #expect(activity.link(.atLeast(20)).isMotion)
+        }
+        #expect(Set(MotionActivity.allCases.map(\.metric)).count == MotionActivity.allCases.count)
+        #expect(MotionActivity.driving.metric == .automotiveMinutes)
+        #expect(ItemLink(metric: ReadingMetric(rawValue: "screenTime"), rule: .atMost(60)).isMotion == false)
+    }
+
+    @Test func linksShowMinutes() {
+        #expect(MotionActivity.onFoot.link(.atLeast(20)).label(for: 14) == "14 min of 20 min")
     }
 }
 

@@ -114,11 +114,21 @@ struct MotionSummariser: Sendable {
     /// Step 1 and 2: one label per event, by priority; low confidence counts as unknown.
     static func kind(of event: MotionEvent) -> MotionKind {
         guard event.confidence != .low else { return .unknown }
-        if event.automotive { return .automotive }
-        if event.cycling { return .cycling }
-        if event.running { return .running }
-        if event.walking { return .walking }
-        if event.stationary { return .stationary }
+        if event.automotive {
+            return .automotive
+        }
+        if event.cycling {
+            return .cycling
+        }
+        if event.running {
+            return .running
+        }
+        if event.walking {
+            return .walking
+        }
+        if event.stationary {
+            return .stationary
+        }
         return .unknown
     }
 
@@ -210,13 +220,16 @@ struct MotionSummariser: Sendable {
     private func splitAtMidnight(_ segment: MotionSegment) -> [MotionSegment] {
         var pieces: [MotionSegment] = []
         var piece = segment
-        while let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: piece.start)),
-              midnight < piece.end {
+        while let midnight = nextMidnight(after: piece.start), midnight < piece.end {
             pieces.append(MotionSegment(kind: piece.kind, start: piece.start, end: midnight))
             piece.start = midnight
         }
         pieces.append(piece)
         return pieces
+    }
+
+    private func nextMidnight(after date: Date) -> Date? {
+        calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date))
     }
 
     private func clip(_ segment: MotionSegment, from: Date, to now: Date) -> MotionSegment? {

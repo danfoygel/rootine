@@ -109,6 +109,7 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
+- **`MotionTests.swift`:** the motion summariser (DATA.md section 8): one label per event by priority, with several flags, no flags and low confidence; segments ending at the next event or now; capped gaps; merging same-kind neighbours and absorbing blips under 2 min (and not across gaps or between different kinds); per-kind minimum durations; midnight splits after merging; days before the query's start left out; completion an hour after a day ends; readings per day (zeros only on complete days, none for a day with no data); the import window's first and resume days; and re-importing through a real store completing a walk habit at once and a no-driving limit only once the day is complete.
 - **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item` etc.). The test writes a store with the oldest frozen version, opens it with the current schema and `RootineMigrationPlan`, and checks that items, categories and events survive with the new fields at their defaults. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
@@ -419,6 +420,20 @@ Pick `heavy`, then `heavyThreeYears`, in test mode on each device:
 - [ ] Back to Real data: the real list and complication are exactly as before, and real changes made on the other device during the test session have synced in.
 - [ ] Export Real Data, then Load Export into Test Data: the test list matches the real one until the next reset.
 - [ ] *(when built)* In test mode, reminders are for test items only and real ones don't fire; switching back restores the real reminders.
+
+### 10.10 Motion activity
+
+iPhone only, on the real store (the simulator records no motion, and test mode doesn't import). Use "TEST …" items (§6.7). First check that Settings → Privacy & Security → Motion & Fitness → Fitness Tracking is on (DATA.md check 21).
+
+- [ ] Fresh install: no motion prompt at launch. Edit a "TEST Walk" habit → Data Source → **Add Motion…**: the Motion & Fitness prompt appears; allow it. The editor then says "Updated <time>."
+- [ ] Set it to Walking + Running, at least 10 min, and save. Walk for 15 minutes with the phone in a pocket, then bring Rootine to the foreground: the item completes on its own and its row shows e.g. "16 min of 10 min" (results can lag a few minutes; foreground again if not).
+- [ ] A "TEST Driving" counted item (target 60, Add Motion… → Driving, 1 per minute): after a known drive of at least 10 minutes, its total is within a few minutes of the drive's length. Note how far off it is, and whether stops at lights split it.
+- [ ] A "TEST No driving" habit (at most 0 driving minutes): not done during a day without driving; done the next morning after opening Rootine (an hour after midnight or later). On a day with a drive it stays not done.
+- [ ] Open the app twice in a row, and again the next day: totals don't double and no extra completions appear.
+- [ ] Don't open Rootine for 2–3 days, then open it: the missed days fill in. Settings → Export Real Data shows `auto` events for the motion items on those days.
+- [ ] The Watch shows the automatic completions (through the relay or CloudKit).
+- [ ] Turn Fitness Tracking off and relaunch: Add Motion… shows the "Fitness Tracking is off" message, and nothing crashes. Turn it back on. With Rootine's own Motion & Fitness permission off (Settings → Apps → Rootine), it shows the "can't read motion activity" message.
+- [ ] In test mode, opening the app imports nothing (the motion editor says so), and back in Real data the real items are unchanged.
 
 ## 11. CI: GitHub Actions
 

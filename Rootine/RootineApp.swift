@@ -8,6 +8,7 @@ struct RootineApp: App {
         WindowGroup {
             TodayView()
                 .dataStore(store)
+                .importsMotion(into: store)
         }
     }
 }
