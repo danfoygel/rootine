@@ -36,13 +36,27 @@ struct LogScreenTimeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let report = ScreenTimeReport(apps: apps, websites: websites)
         let day = day.map { LocalDay($0) } ?? store.clock.today.adding(days: -1)
+        var run = ScreenTimeRun(date: store.clock.now(), day: day, apps: apps, websites: websites)
+        defer { run.record(in: .standard) }
+        do {
+            run.result = try log(on: day)
+        } catch {
+            let message = (error as? LogScreenTimeError).map { String(localized: $0.localizedStringResource) }
+            run.result = "Failed: " + (message ?? error.localizedDescription)
+            throw error
+        }
+        return .result(value: run.result)
+    }
+
+    @MainActor
+    private func log(on day: LocalDay) throws -> String {
+        let report = ScreenTimeReport(apps: apps, websites: websites)
         guard !report.isEmpty else {
             // Nothing at all is normal just after midnight, when today has no activity yet: no error, so the
             // automation stays quiet. Rows that couldn't be read are worth an error.
             guard report.skipped == 0 else { throw LogScreenTimeError.unreadable(skipped: report.skipped) }
-            return .result(value: "\(day): no Screen Time yet")
+            return "\(day): no Screen Time yet"
         }
         let context = store.container.mainContext
         let links = try context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.linkData != nil }))
@@ -57,7 +71,7 @@ struct LogScreenTimeIntent: AppIntent {
         for record in records {
             store.relay.send(record)
         }
-        return .result(value: Self.summary(of: report, on: day))
+        return Self.summary(of: report, on: day)
     }
 
     /// The intent's output, for checking the shortcut, e.g. "2026-11-06: 23 apps, 8 websites".

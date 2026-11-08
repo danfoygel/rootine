@@ -14,6 +14,8 @@ Action encoding, checked against the iOS 26.3 simulator runtime:
   as Writing Tools' summarize action in the Shortcuts gallery). `during`: today / yesterday / ...;
   `activityType`: all / app / website. Leaving out `selectedDevice` means this device.
 - Rootine's action is `com.danfoygel.rootine.LogScreenTimeIntent`, with an `AppIntentDescriptor`.
+- Its inputs are the activity lists' Description property (a `WFPropertyVariableAggrandizement` whose
+  `PropertyUserInfo` names the App Intents entity property `description`; key names from WorkflowKit).
 """
 
 import plistlib
@@ -53,8 +55,19 @@ def token(attachment: dict) -> dict:
     }
 
 
-def output_of(action_uuid: str) -> dict:
-    return token({"OutputName": ACTIVITY_OUTPUT, "OutputUUID": action_uuid, "Type": "ActionOutput"})
+def descriptions_of(action_uuid: str) -> dict:
+    """The activity list's Description property: one `Name (1h 35m)` per item. The list itself turns into
+    other text that has no durations (Dan's first run, 2026-11-07: "18 rows had no name or duration")."""
+    return token({
+        "OutputName": ACTIVITY_OUTPUT,
+        "OutputUUID": action_uuid,
+        "Type": "ActionOutput",
+        "Aggrandizements": [{
+            "Type": "WFPropertyVariableAggrandizement",
+            "PropertyName": "Description",
+            "PropertyUserInfo": {"WFLinkEntityContentPropertyUserInfoPropertyIdentifier": "description"},
+        }],
+    })
 
 
 def comment(text: str) -> dict:
@@ -81,8 +94,8 @@ def log(day: str, apps_uuid: str, websites_uuid: str) -> dict:
     parameters = {
         "UUID": stable_uuid(f"log-{day}"),
         "AppIntentDescriptor": ROOTINE,
-        "apps": output_of(apps_uuid),
-        "websites": output_of(websites_uuid),
+        "apps": descriptions_of(apps_uuid),
+        "websites": descriptions_of(websites_uuid),
     }
     if day == "today":
         parameters["day"] = token({"Type": "CurrentDate"})

@@ -462,6 +462,7 @@ Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them
 
 Set up as in DATA.md section 1, "Setting it up on the iPhone", with Rootine on Real data. Compare against Settings → Screen Time → See All App & Website Activity → Day, for the previous day and this iPhone.
 - [ ] Running the shortcut by hand shows `<yesterday>: N apps, M websites` with no unreadable rows. If it fails, the JSON-rows fallback in the setup steps works instead.
+- [ ] Settings → Screen Time → Recent Shortcut Runs shows each run's raw input as `Name (1h 35m)` lines, with no failures.
 - [ ] Rootine's Settings → Screen Time matches Settings → Screen Time → See All App & Website Activity for today and yesterday: the total, each app and each website (Rootine shows seconds; Apple rounds). "Logged" shows the last run's time.
 - [ ] In an item's Data Source → Screen Time, the apps (and, under Website, the domains) from the run are offered, most used first, in the same order as Settings.
 - [ ] A limit habit under its limit (e.g. "Under 1h Instagram") shows as done for yesterday after the run, on the iPhone and then the Watch; one over its limit stays open. An app not used at all completes a limit on it.

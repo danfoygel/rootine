@@ -124,3 +124,23 @@ struct ScreenTimeDayTests {
         #expect(ScreenTimeDay(readings: readings, on: fixedToday.adding(days: -2)).isEmpty)
     }
 }
+
+/// The raw input kept for Settings → Screen Time's "Recent Shortcut Runs".
+struct ScreenTimeRunTests {
+    @Test func keepsTheNewestRunsAndCutsLongInput() throws {
+        let defaults = try #require(UserDefaults(suiteName: "ScreenTimeRunTests-\(UUID().uuidString)"))
+        #expect(ScreenTimeRun.recent(in: defaults).isEmpty)
+        for minute in 0 ..< 6 {
+            ScreenTimeRun(date: Date(timeIntervalSinceReferenceDate: Double(minute) * 60), day: fixedToday,
+                          apps: "Notes (\(minute)m)", websites: nil, result: "run \(minute)")
+                .record(in: defaults)
+        }
+        let runs = ScreenTimeRun.recent(in: defaults)
+        #expect(runs.map(\.result) == ["run 5", "run 4", "run 3", "run 2"])
+        #expect(runs.first?.websites == "")
+
+        let long = ScreenTimeRun(date: .now, day: fixedToday, apps: String(repeating: "x", count: 30000),
+                                 websites: "")
+        #expect(long.apps.count == ScreenTimeRun.maxInputLength)
+    }
+}

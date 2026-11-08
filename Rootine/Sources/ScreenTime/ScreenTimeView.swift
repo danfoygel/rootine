@@ -57,6 +57,7 @@ struct ScreenTimeView: View {
                 entriesSection("Apps", summary.apps, metric: .screenTime)
                 entriesSection("Websites", summary.websites, metric: .websiteTime)
             }
+            ScreenTimeRunsSection()
         }
         .navigationTitle("Screen Time")
         .navigationBarTitleDisplayMode(.inline)
@@ -141,6 +142,54 @@ struct ScreenTimeView: View {
     /// Names of the items linked to this app or website.
     private func linkedNames(metric: ReadingMetric, subject: String) -> [String] {
         linkedItems.filter { $0.link?.metric == metric && $0.link?.subject == subject }.map(\.name).sorted()
+    }
+}
+
+/// The raw text of the shortcut's last runs on this device, for when its numbers don't come through.
+private struct ScreenTimeRunsSection: View {
+    @State private var runs: [ScreenTimeRun] = []
+
+    var body: some View {
+        Section {
+            if runs.isEmpty {
+                Text("The shortcut hasn't run on this iPhone yet.").foregroundStyle(.secondary)
+            }
+            ForEach(runs) { run in
+                DisclosureGroup {
+                    input("Apps", run.apps)
+                    input("Websites", run.websites)
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(run.date.formatted(date: .abbreviated, time: .shortened))
+                        Text(run.result)
+                            .font(.caption)
+                            .foregroundStyle(run.result.hasPrefix("Failed") ? .red : .secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Recent Shortcut Runs")
+        } footer: {
+            Text("What the shortcut passed to Log Screen Time, as received. Copy it if the numbers look wrong.")
+        }
+        .onAppear { runs = ScreenTimeRun.recent(in: .standard) }
+    }
+
+    private func input(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.caption.bold())
+                Spacer()
+                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(text.isEmpty)
+            }
+            Text(text.isEmpty ? "(empty)" : text)
+                .font(.caption.monospaced())
+                .lineLimit(12)
+                .textSelection(.enabled)
+        }
     }
 }
 
