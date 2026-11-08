@@ -183,9 +183,10 @@ The on-phone `DeviceActivityMonitor` threshold approach still works for simple "
   6. To share the shortcut as a file later: Share → *Copy iCloud Link*, and give the link to a session (see below).
 - **Distributing the shortcut as a file** (so it needn't be built by hand):
   - iOS imports only **signed** shortcut files. `scripts/make-screen-time-shortcut.py` writes the plist and signs it with `shortcuts sign --mode anyone` (needs the Mac signed in to iCloud).
+  - **Verified 2026-11-07:** the generated file imports on Dan's iPhone with every action intact. Rootine's actions only resolve when the installed build includes `LogScreenTimeIntent` and has been opened once; with another branch's build installed they show as *Unknown Action*.
   - The action's encoding came from the iOS 26.3 simulator runtime, not from a shortcut exported off the iPhone. *Get App & Website Activity* is `CalculateAppUsageIntent` in the system extension `com.apple.intelligenceplatform.IntelligencePlatform.IntelligencePlatformDataActionsAppIntentsExtension` (parameters `during`, `selectedDevice`, `activityType`, `startTime`, `endTime`; output entities with `app`, `url`, `totalDuration`, `description`). System extension actions are written as `<extension bundle ID>.<intent>` with enum choices as plain strings, like Writing Tools' summarize action in the Shortcuts gallery.
   - Automations can't be imported; they're set up by hand (step 4 above).
-  - Not done yet: a button in Rootine that offers the bundled file, once the imported shortcut is confirmed to work on the iPhone.
+  - Not done yet: a button in Rootine that offers the bundled file.
 
 #### 2. Mac helper (Biome remote stream)
 - **Where the data is:**
