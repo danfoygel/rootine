@@ -581,7 +581,7 @@ Built as described in the build plan ("Wake and bed times"). In short:
 5. **Cross-check** *(not built; with the phase 2 HealthKit work)*: the next day, read HealthKit `sleepAnalysis` and store the actual sleep start and end beside the signals. Later this could suggest updates to the routine's times.
 
 ### Setting up the automations
-Done by hand on the iPhone, in the Shortcuts app. Rootine must be installed, and opened once so Shortcuts lists its action. The exact trigger names below come from Apple's guide and reports; check 13 confirms them.
+Done by hand on the iPhone, in the Shortcuts app. Rootine must be installed, and opened once so Shortcuts lists its action. On Dan's iPhone (iOS 26.6, 2026-11-07) the Sleep trigger shows as *When Bedtime starts* and *When Waking Up*; the Alarm and Focus labels below come from Apple's guide and reports and are still for check 13.
 
 **Wake: Alarm → Is Stopped** (the main one)
 1. Shortcuts → **Automation** → **+** (or *New Automation*) → **Alarm**.
@@ -591,8 +591,11 @@ Done by hand on the iPhone, in the Shortcuts app. Rootine must be installed, and
 5. Set it to **Wake** time from **Alarm**, and leave *Time* empty (it uses the moment the alarm stopped). **Done**.
 
 **Bed: Sleep → Bedtime starts**
-1. **+** → **Sleep** → **Bedtime Begins** (it may be labelled *Bedtime starts*), **Run Immediately**.
+1. **+** → **Sleep** → **Bedtime starts**, **Run Immediately**.
 2. Add **Log Wake or Bed Time**: **Bed** time from **Sleep Schedule**. This logs the scheduled time, not when Dan goes to bed.
+
+**Fallback wake: Sleep → Waking Up**
+- **+** → **Sleep** → **Waking Up**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Schedule**. It fires at the *scheduled* wake time, so it says when the alarm went off, not when Dan got up. Use it only alongside the alarm automation (the earlier wake wins, so on a normal morning it sets the time), or on its own until the alarm one is set up.
 
 **Optional: Sleep Focus** (only if the Focus trigger lists Sleep; check 13)
 - **+** → **Focus** → **Sleep** → **When Turning Off**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Focus**. The earlier of this and the alarm wins.
