@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Location (phase 3a), wake and bed times (section 5) and the shared readings core are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. The shared readings core, location (phase 3a), wake and bed times (section 5) and the motion-activity daily import are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -13,7 +13,7 @@ Status: research notes from November 2026, gathered before any code was written.
 | **Sleep / wake times** | Wake time: probably (untested). Bed time: only scheduled times. **Built** | Shortcuts automations (Alarm → Is Stopped, Sleep/Focus triggers) → `LogDayBoundaryIntent`; HealthKit sleep as next-day cross-check | Low | Alarm stopped on the Watch may not fire; no signal on alarm-free days |
 | **Time in Daylight** | Yes | HealthKit `timeInDaylight` (recorded by the Watch) as a counted item in minutes | Low (with section 9 HealthKit) | Watch→iPhone sync delay; sleeves/shade under-count |
 | **State of Mind** | Yes, read and write | HealthKit `HKStateOfMind`: auto-complete "log mood"; Watch check-in writes to Health; mood-vs-completion stats | Low–Medium | Sensitive: keep it in HealthKit, store no copies |
-| **Motion activity** | Yes (iPhone) | `CMMotionActivityManager` 7-day query → daily `MotionDay` summaries | Low–Medium | Noisy driving/cycling; 7-day window loses data if the app isn't opened |
+| **Motion activity** | **Yes (built: daily import)** | `CMMotionActivityManager` 7-day query → daily minutes per kind as `Reading`s | Low–Medium | Noisy driving/cycling; 7-day window loses data if the app isn't opened |
 
 **Suggested order:** (1) ViHealth via HealthKit, which fits into the section 9 HealthKit work already planned; (2) location: saved places plus `CLMonitor`, then visits; (3) Temtop BLE reader; (4) Screen Time via the Shortcuts App Intent. It's verified and cheap, so it could go earlier. Wake-time logging can share that App Intent work. Time in Daylight and State of Mind ride along with the HealthKit work in (1). Motion activity comes after HealthKit, and its commute labelling after location. The build plan below revises this order.
 
@@ -105,7 +105,7 @@ Only if device checks 8–10 confirm the BLE-only M10+ with the expected service
 
 ### Later sources (sections 5–8)
 
-Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Motion activity comes after phase 2, and its commute labelling after phase 3. Wake and bed times are built (below).
+Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Motion activity's commute labelling comes after phase 3. Wake and bed times and the motion-activity daily import are built (below).
 
 ### Wake and bed times (built)
 
@@ -120,6 +120,16 @@ A second App Intent beside phase 1's, with no schema change: each signal is a V2
 - **Pace model (not built yet):** when it is, it reads the day's `wakeTime` readings (the minimum; any trigger) as the start of waking hours, falling back to the routine's manual wake time when none has arrived by the planned time plus a grace period (section 5, step 3). Bed readings stay history only.
 - Not built: the HealthKit sleep cross-check (phase 2) and the Focus filter.
 - Done: the automations in section 5 are set up and log a week of mornings (device checks 13–15, still untested).
+
+### Motion activity: daily import (built)
+
+Section 8, recommendation step 1. It needed no schema change: each day's summary is stored as V2 `Reading`s, not the `MotionDay` model sketched in section 8.
+
+- `Shared/Sources/Motion/`: `ReadingSource.motion`, the minute metrics, the pure `MotionSummariser` (`MotionEvent` structs in, `MotionDaySummary` per day out) and `MotionImportWindow` (where each import starts and resumes). Tests in `RootineTests/MotionTests.swift`.
+- `Rootine/Sources/Motion/MotionImporter` (iPhone only) runs on launch and every foreground, and from the motion link editor (which shows the permission prompt). It doesn't import in test mode. `NSMotionUsageDescription` is in `project.yml`; there's no `BGAppRefreshTask` yet.
+- Editor: "Add Motion" in the Data Source section; habits take at least / at most N minutes, counted items one unit per N minutes.
+- Settings has a **Motion Today** section, independent of items and links: today's minutes per activity, an "Allow Motion Access" button until access has been asked for, and "Last 7 Days" (also in the motion editor), which lists each of the last 7 days (pure part: `MotionHistory`). Both import when they appear; pull to refresh imports again. A day with no readings shows "Not recorded", not zeros.
+- Done: a week of imports on the iPhone with "Walk 20 min" completing on its own and driving minutes matching a known drive (`TESTING.md` §10.12).
 
 ### Not planned
 
@@ -757,42 +767,41 @@ People log it in Health on the iPhone, in Mindfulness on the Watch (which has a 
 
 All run on iOS and watchOS, but each device keeps its own history and the iPhone can't read the Watch's. Authorization: `NSMotionUsageDescription` (the app crashes on first use without it) and `CMMotionActivityManager.authorizationStatus()`. `.restricted` usually means the system Fitness Tracking toggle is off, and the status may not refresh until relaunch.
 
-### How it would work in Rootine
-- **iPhone only.** The phone is what rides in the car. Cycling on the Watch was reported as always "unknown" on watchOS 26.5 (FB22968877).
-- **Catch-up import:** a `MotionImporter` re-queries `max(lastImport, now − 7 d)…now`:
-  - on launch and foreground
-  - on location relaunches (CLVisit / CLMonitor, section 4)
-  - optionally from a `BGAppRefreshTask`, which needs `BGTaskSchedulerPermittedIdentifiers` and the `fetch` background mode in `project.yml`.
+### How it works in Rootine
+Built (recommendation step 1, see the build plan): the daily import and motion-linked items. Commute labelling and the stored segments are not built yet.
 
-  Each run recomputes whole days, so repeats are harmless. A day is marked complete once it ended more than an hour before the import. *Unverified:* whether queries succeed while the phone is locked in the background.
-- **Summarising** (pure, testable logic in `Shared/Scheduling`):
-  1. Pick one label per event, by priority: automotive > cycling > running > walking > stationary > unknown.
+- **iPhone only.** The phone is what rides in the car. Cycling on the Watch was reported as always "unknown" on watchOS 26.5 (FB22968877).
+- **Catch-up import:** `MotionImporter` re-queries from the first day not yet complete (saved locally as `motion.resumeFrom`), or the oldest whole day of the 7, until now:
+  - on launch and foreground (built)
+  - on location relaunches (CLVisit / CLMonitor, section 4) (not yet)
+  - optionally from a `BGAppRefreshTask`, which needs `BGTaskSchedulerPermittedIdentifiers` and the `fetch` background mode in `project.yml` (not yet).
+
+  Each run recomputes whole days from midnight and replaces that day's motion readings (`replaceReadings`), so repeats are harmless. The query starts an hour before the first midnight, to catch the activity under way then. A day is complete once it ended more than an hour before the import. An empty range's `CMErrorUnknown` counts as no data. *Unverified:* whether queries succeed while the phone is locked in the background.
+- **Summarising** (`MotionSummariser`, pure and unit tested, in `Shared/Sources/Motion`):
+  1. Pick one label per event, by priority: automotive > cycling > running > walking > stationary > unknown. No flags is unknown.
   2. Treat low confidence as unknown.
-  3. A segment runs until the next event. Cap gaps and split at midnight.
-  4. Merge neighbouring segments with the same label, absorbing blips under 2 min.
-  5. Drop segments under a minimum: about 1 min for walking, 3 min for driving.
-  6. Result: "walking 14 min, driving 42 min".
-- **Model** (CloudKit-safe; only the iPhone writes; look up by `dayKey` and update in place, since unique constraints aren't allowed):
-  ```swift
-  @Model final class MotionDay {
-      var dayKey = ""                 // "2026-11-07", local day
-      var walkingMinutes = 0.0; var runningMinutes = 0.0; var cyclingMinutes = 0.0
-      var automotiveMinutes = 0.0; var stationaryMinutes = 0.0; var unknownMinutes = 0.0
-      var segmentsData: Data?         // JSON [MotionSegment(start, end, kind)], merged, a few KB
-      var importedAt = Date(); var isComplete = false
-  }
-  ```
-  About 365 small records a year. Don't store raw events as records.
+  3. A segment runs until the next event (the last one until now), capped at 3 h: a longer silence is missing data, not one long activity.
+  4. Merge touching segments with the same label, absorbing a run of other labels lasting under 2 min between two of the same label. Nothing merges across a capped gap.
+  5. Drop segments under a minimum: 1 min for walking and running, 3 min for driving and cycling.
+  6. Split at midnight. This comes after merging and the minimums, so a 4-minute drive across midnight counts on both days instead of being dropped as two 2-minute pieces.
+  7. Mark a day complete once it ended more than an hour before the import.
+  8. Result: "walking 14 min, driving 42 min".
+- **Storage** (no schema change): one V2 `Reading` per kind per day, `source = motion`, value in minutes, `start` at midnight. The metrics are `walkingMinutes`, `runningMinutes`, `cyclingMinutes`, `automotiveMinutes`, `stationaryMinutes`, plus `onFootMinutes` (walking + running). An item has a single link, so "Walk ≥ 20 min" needs one combined metric rather than two links. Unknown time isn't stored. About 2,200 small records a year. Don't store raw events as records.
+  - A **complete** day has a reading for every kind, zeros included, and `end` at midnight.
+  - An **incomplete** day (today) has readings only for kinds with time, and no `end`. So "no driving on Sunday" (`atMost(0)`) isn't marked done at breakfast: it waits for the finished day. A limit above zero ("at most 60 min") can read as done during the day and is taken back if it's exceeded later.
+  - A day with no activity recorded at all (phone off, Fitness Tracking off) gets no readings: no data is never zero.
+- **Segments (deferred):** `MotionDaySummary.segments` already holds the day's merged segments. Commute labelling will store them per day as JSON in one more `Reading` (`metric = motionSegments`, value 0, the JSON in a new optional `Reading.payload: Data?` field, a few KB), or in a `MotionDay` model if that schema change lands with location's V3. Either way: one record per day, never a record per segment.
 - **Swift 6:** there are no async methods and `CMMotionActivity` isn't `Sendable`.
   - Keep the manager in a `@MainActor` service.
   - Wrap the query in `withCheckedThrowingContinuation`, converting each event to a `Sendable` struct inside the handler.
-  - Deliver on `.main` or mark the closure `@Sendable`, to avoid tripping Swift 6's runtime isolation checks.
+  - Deliver on `.main` and mark the closure `@Sendable`, to avoid tripping Swift 6's runtime isolation checks. The importer does both.
+- **Permission:** the app asks only when Dan taps Allow Motion Access in Settings, opens the motion link editor, or has an item linked to motion, never at first launch. Once allowed, every launch imports, whether or not any item uses motion. `.restricted` (Fitness Tracking off) and `.denied` show a message in the motion link editor.
 - **With location:** a driving, walking or cycling segment between leaving one saved place and arriving at another becomes a commute, e.g. "Home → Work: 24 min driving".
 - **Habits:**
-  - "Walk ≥ 20 min": walking + running minutes. This catches easy walks that HealthKit exercise minutes miss.
-  - "Time spent driving" as a counted item.
-  - "Active commute".
-  - "No driving on Sunday" is a *negative* habit that needs end-of-day evaluation. The current item types don't support that, so it's a requirements gap.
+  - "Walk ≥ 20 min": `onFootMinutes` at least 20 (built). This catches easy walks that HealthKit exercise minutes miss.
+  - "Time spent driving" as a counted item: `automotiveMinutes`, one unit per minute (built).
+  - "No driving on Sunday": a weekly habit on Sundays with `automotiveMinutes` at most 0 (built). This was a requirements gap until the readings core's `atMost`; the end-of-day evaluation comes from leaving zeros out of incomplete days (above).
+  - "Active commute" (not yet; needs commute labelling).
 
 ### Limitations & risks
 - **Noise:** driving can be classified as walking or unknown with low confidence. Driving detection starts late, at around 30 km/h. A less sensitive detector since iOS 16.4 was never fixed.
@@ -802,7 +811,7 @@ All run on iOS and watchOS, but each device keeps its own history and the iPhone
 - **Battery and privacy:** recording runs on the low-power motion coprocessor, which is on anyway. The data stays on the device until Rootine syncs its summaries.
 
 ### Recommendation
-1. After the section 9 HealthKit work, build the daily `MotionDay` import and walking/driving-minutes counted items.
+1. ~~Build the daily import and walking/driving-minutes items.~~ Built as readings (see the build plan), without waiting for HealthKit.
 2. Add commute labelling once `PlaceVisit` exists.
 3. Use HealthKit, not `CMPedometer`, for steps, distance and floors.
 4. Skip Watch-side motion activity for now.
@@ -873,3 +882,4 @@ With the intent built, 13 and 14 can use the real automations from section 5 ("S
 
 **Motion activity**
 21. Settings → Privacy & Security → Motion & Fitness → **Fitness Tracking** is on.
+22. The import checks in `TESTING.md` §10.12.

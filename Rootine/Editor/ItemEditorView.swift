@@ -194,6 +194,7 @@ struct ItemEditorView: View {
             if let link = draft.link, link.placeID == nil {
                 LabeledContent("Linked to", value: link.summary)
             }
+            MotionLinkRow(link: $draft.link, kind: draft.kind)
             PlaceLinkRow(link: $draft.link, kind: draft.kind)
             DayBoundaryLinkRow(link: $draft.link)
             if draft.link != nil {
