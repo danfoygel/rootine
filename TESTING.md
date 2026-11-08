@@ -110,7 +110,7 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
 - **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store, including its Health-linked items, whose readings come from samples run through `HealthAggregator`.
-- **`HealthTests.swift`:** HealthKit's pure layer (`Shared/Sources/Health/`), from samples built in code: every type's daily aggregation (sums, distinct counts, workouts per activity, time asleep with overlapping sources counted once, the overnight SpO2 minimum, average and time below 90%, the heart-rate range); exact duplicates (ViHealth re-syncing a night) counting once; empty days having no readings; the midnight split, where calendar types cut at midnight and a night (sleep, SpO2) belongs to the day it ends, including across the November DST change; the look-back on affected days; editor choices converting minutes, hours and percentages to reading units and back; and aggregated readings completing linked items through a real store, each type replacing only its own readings. `HealthReader` itself is a shell checked on the device (§10.11).
+- **`HealthTests.swift`:** HealthKit's pure layer (`Shared/Sources/Health/`), from samples built in code: every type's daily aggregation (sums, distinct counts, workouts per activity, time asleep with overlapping sources counted once, the overnight SpO2 minimum, average and time below 90%, the heart-rate range); exact duplicates (ViHealth re-syncing a night) counting once; empty days having no readings; the midnight split, where calendar types cut at midnight and a night (sleep, SpO2) belongs to the day it ends, including across the November DST change; the look-back on affected days; editor choices converting minutes, hours and percentages to reading units and back; and aggregated readings completing linked items through a real store, each type replacing only its own readings. `HealthReader` itself is a shell checked on the device (§10.12).
 - **`LocationTests.swift`** (DATA.md phase 3a):
   - place matching within radius plus accuracy, nearest first, and nothing for approximate fixes;
   - `VisitLog` merging: an arrival then a departure fill in one visit; repeated `CLVisit`s and `CLMonitor` enter/exit events for one stay stay one visit; a brief exit and return; arriving elsewhere closes an open visit; a stale open visit is capped;
@@ -443,7 +443,22 @@ Setup: Settings → Places → Allow Location Access (When In Use), then turn on
 - [ ] Battery: with Record Visits on for a week, Settings → Battery shows Rootine with little background use.
 - [ ] In test mode, real visits go to the test store and the real store's places aren't monitored; switching back restores them.
 
-### 10.11 HealthKit
+### 10.11 Wake and bed times
+
+Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them in test mode first, with an "Up by 7:00" item linked through Data Source → Add Wake / Bed Time; the intent writes to whichever store is active. These cover `DATA.md` device checks 13–15, which are **still untested**.
+
+- [ ] Shortcuts → Automation → **+** lists the triggers the setup uses: Alarm (Wake Up and/or Any) with *Is Stopped*, Sleep with *Bedtime*, Focus with Sleep *turning on / off*, each with *Run Immediately* (check 13). Note the exact labels in `DATA.md` §5 if they differ.
+- [ ] Stopping the alarm **on the iPhone** logs a wake time without opening Rootine; the item completes, and the check-off shows on the Watch (relay or CloudKit).
+- [ ] Stopping the alarm **on the Watch**: does the iPhone automation run (check 14)? If not, note it in `DATA.md` §5; the Focus trigger may cover it.
+- [ ] Snoozing, then stopping, logs once, at the stop.
+- [ ] Running the wake automation again later that day (by hand from its row) shows "Ignored: … already has a wake time" and changes nothing.
+- [ ] Bedtime (schedule) and Sleep Focus on both log a bed time for the night; one after midnight counts toward the day before.
+- [ ] A day with the alarm skipped: note whether anything fired; the item stays open (check 14).
+- [ ] Phone restarted overnight and not unlocked: note whether the wake automation runs, and how late.
+- [ ] Settings → Focus → Sleep: is there a *Focus Filters* section (check 15)? Only matters if the Focus triggers are missing.
+- [ ] Back in real data: no test wake or bed readings or check-offs show.
+
+### 10.12 HealthKit
 
 iPhone only, on the real store (HealthKit is never read in test mode; test-mode readings come from scenarios). Background delivery doesn't run in the simulator. First run DATA.md's device checks 3–7 (whether and how often ViHealth writes to Health). Use "TEST …" items (§6.7).
 
