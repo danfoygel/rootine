@@ -53,6 +53,8 @@ struct ItemLink: Hashable, Codable, Sendable {
         /// Stored as 0–1, shown as a percentage.
         case fraction
         case suffix(String)
+        /// Minutes since local midnight, shown as a clock time, e.g. "6:42". Past 24h is the next day's clock.
+        case clockTime
     }
 
     var metric: ReadingMetric
@@ -121,6 +123,8 @@ struct ItemLink: Hashable, Codable, Sendable {
             value.formatted(.percent.precision(.fractionLength(0)))
         case let .suffix(suffix):
             "\(value.formatted(.number.precision(.fractionLength(0 ... 1)))) \(suffix)"
+        case .clockTime:
+            String(format: "%d:%02d", Int(value) / 60 % 24, Int(value) % 60)
         }
     }
 }

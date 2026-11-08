@@ -442,6 +442,21 @@ Setup: Settings → Places → Allow Location Access (When In Use), then turn on
 - [ ] Battery: with Record Visits on for a week, Settings → Battery shows Rootine with little background use.
 - [ ] In test mode, real visits go to the test store and the real store's places aren't monitored; switching back restores them.
 
+### 10.11 Wake and bed times
+
+Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them in test mode first, with an "Up by 7:00" item linked through Data Source → Add Wake / Bed Time; the intent writes to whichever store is active. These cover `DATA.md` device checks 13–15, which are **still untested**.
+
+- [ ] Shortcuts → Automation → **+** lists the triggers the setup uses: Alarm (Wake Up and/or Any) with *Is Stopped*, Sleep with *Bedtime*, Focus with Sleep *turning on / off*, each with *Run Immediately* (check 13). Note the exact labels in `DATA.md` §5 if they differ.
+- [ ] Stopping the alarm **on the iPhone** logs a wake time without opening Rootine; the item completes, and the check-off shows on the Watch (relay or CloudKit).
+- [ ] Stopping the alarm **on the Watch**: does the iPhone automation run (check 14)? If not, note it in `DATA.md` §5; the Focus trigger may cover it.
+- [ ] Snoozing, then stopping, logs once, at the stop.
+- [ ] Running the wake automation again later that day (by hand from its row) shows "Ignored: … already has a wake time" and changes nothing.
+- [ ] Bedtime (schedule) and Sleep Focus on both log a bed time for the night; one after midnight counts toward the day before.
+- [ ] A day with the alarm skipped: note whether anything fired; the item stays open (check 14).
+- [ ] Phone restarted overnight and not unlocked: note whether the wake automation runs, and how late.
+- [ ] Settings → Focus → Sleep: is there a *Focus Filters* section (check 15)? Only matters if the Focus triggers are missing.
+- [ ] Back in real data: no test wake or bed readings or check-offs show.
+
 ## 11. CI: GitHub Actions
 
 `.github/workflows/ci.yml` runs on `macos-26`:

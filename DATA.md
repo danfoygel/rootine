@@ -1,6 +1,6 @@
 # Rootine — External data sources
 
-Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Location (phase 3a) and the shared readings core are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
+Status: research notes from November 2026, gathered before any code was written. Each section is a feasibility study of one source: what can be accessed, how it would fit into Rootine, risks, and a recommendation. Location (phase 3a), wake and bed times (section 5) and the shared readings core are built; see the build plan. On-device checks are noted where they were done. Claims marked *unverified* came from search-result snippets because the session's network policy blocked the page.
 
 ## Summary
 
@@ -10,7 +10,7 @@ Status: research notes from November 2026, gathered before any code was written.
 | **ViHealth** (O2 Ring, Checkme BP) | Yes | Read **HealthKit**: ViHealth writes BP, SpO2 and HR there | Low | Data arrives only when ViHealth syncs the device; sample granularity unknown |
 | **Temtop M10+** | Yes, if it's the BLE-only model | Direct **CoreBluetooth** using a community-reverse-engineered frame format | Medium | Unofficial protocol; one BLE client at a time; Wi-Fi variant may turn BLE off |
 | **Location history** | Yes. In-app tracking is the right call. | `CLVisit` + `CLMonitor` on the iPhone, stored as `PlaceVisit` | Medium | `didVisit` regression on some iOS 26 devices; needs Always permission |
-| **Sleep / wake times** | Wake time: probably (untested). Bed time: only scheduled times | Shortcuts automations (Alarm → Is Stopped, Sleep/Focus triggers) → `LogDayBoundaryIntent`; HealthKit sleep as next-day cross-check | Low | Alarm stopped on the Watch may not fire; no signal on alarm-free days |
+| **Sleep / wake times** | Wake time: probably (untested). Bed time: only scheduled times. **Built** | Shortcuts automations (Alarm → Is Stopped, Sleep/Focus triggers) → `LogDayBoundaryIntent`; HealthKit sleep as next-day cross-check | Low | Alarm stopped on the Watch may not fire; no signal on alarm-free days |
 | **Time in Daylight** | Yes | HealthKit `timeInDaylight` (recorded by the Watch) as a counted item in minutes | Low (with section 9 HealthKit) | Watch→iPhone sync delay; sleeves/shade under-count |
 | **State of Mind** | Yes, read and write | HealthKit `HKStateOfMind`: auto-complete "log mood"; Watch check-in writes to Health; mood-vs-completion stats | Low–Medium | Sensitive: keep it in HealthKit, store no copies |
 | **Motion activity** | Yes (iPhone) | `CMMotionActivityManager` 7-day query → daily `MotionDay` summaries | Low–Medium | Noisy driving/cycling; 7-day window loses data if the app isn't opened |
@@ -19,7 +19,7 @@ Status: research notes from November 2026, gathered before any code was written.
 
 ## Build plan
 
-Status: November 2026. Phases 0 and 3a are built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
+Status: November 2026. Phases 0 and 3a and wake/bed times (section 5) are built. Each later phase is one session and one PR. Phases 1, 2 and 3a run **in parallel** once phase 0 is on `main`; 3b waits for v1 notifications, and phase 4 for device checks 8–10.
 
 **Working in parallel without conflicts:**
 - Each source lives in its own files: `Shared/Sources/<Source>/` for pure parsing and aggregation (its `ReadingSource` and `ReadingMetric` constants are declared there as `extension ReadingSource { static let … }`), the shell in `Rootine/Sources/<Source>/`, and tests in `RootineTests/<Source>Tests.swift`.
@@ -105,7 +105,21 @@ Only if device checks 8–10 confirm the BLE-only M10+ with the expected service
 
 ### Later sources (sections 5–8)
 
-Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Wake-time logging is a second App Intent beside phase 1's. Motion activity comes after phase 2, and its commute labelling after phase 3.
+Not scheduled yet; each reuses a phase above. Time in Daylight and State of Mind are HealthKit types and slot into phase 2 (State of Mind is read, never copied into a `Reading`, per section 7). Motion activity comes after phase 2, and its commute labelling after phase 3. Wake and bed times are built (below).
+
+### Wake and bed times (built)
+
+A second App Intent beside phase 1's, with no schema change: each signal is a V2 `Reading`.
+
+- `LogDayBoundaryIntent(kind:source:at:)` in `Rootine/Sources/DayBoundary/` (iPhone only). `at` defaults to now. It writes to the active `DataStore` (so it follows test mode), adds the reading with `addReadings` and relays the automatic events with `WatchRelay.send`. Its output says what was logged or why the event was ignored, which shows when the automation runs.
+- The rules are pure, in `Shared/Sources/DayBoundary/DayBoundary.swift` and tested in `RootineTests/DayBoundaryTests.swift` (first wake wins, naps, after-midnight bed, DST days, the intent against an in-memory store):
+  - A reading has `source = dayBoundary`, `metric = wakeTime` or `bedTime`, `subject` = the trigger (`alarm`, `focus`, `schedule`), `start` = the absolute time, and `value` = **wall-clock** minutes since local midnight (7:00 is 420 on a DST day too).
+  - **Wake:** the earliest of the day wins; a later one (a nap alarm, a second trigger) is dropped. An earlier one that arrives late is still stored, and links take the minimum. Wake events before 03:00 are night waking and ignored.
+  - **Bed:** events from 00:00 to 06:00 belong to the previous day, as minutes past that day's midnight (00:30 is 1470). Events from 06:00 to 18:00 are naps and ignored. Each trigger logs one bed time a night, so a repeat run adds nothing.
+- Links: "Up by 7:00" is `atMost(420)` on `wakeTime` with `combine: .min`; "In bed by 23:30" is `atMost(1410)` on `bedTime` with `combine: .max` (the latest signal, e.g. Sleep Focus after the scheduled Bedtime). Either can be limited to one trigger with `subject`. `ItemLink.Unit.clockTime` shows rows as "6:42 of 7:00". The editor's Data Source section has a "Wake / Bed Time" row.
+- **Pace model (not built yet):** when it is, it reads the day's `wakeTime` readings (the minimum; any trigger) as the start of waking hours, falling back to the routine's manual wake time when none has arrived by the planned time plus a grace period (section 5, step 3). Bed readings stay history only.
+- Not built: the HealthKit sleep cross-check (phase 2) and the Focus filter.
+- Done: the automations in section 5 are set up and log a week of mornings (device checks 13–15, still untested).
 
 ### Not planned
 
@@ -552,29 +566,55 @@ So: record the actual wake time each morning, keep the routine's manual bed time
 | **Screen Time hourly data** (section 1) | First and last hours with phone use | The 06:00 run, for yesterday | Hour-level only; a cross-check for bed time |
 | First unlock / first phone use | — | — | No API |
 
-### How it would work in Rootine
-1. **One App Intent:** `LogDayBoundaryIntent(kind: .wake | .bed, source: String, at: Date?)`. If `at` is nil, the intent uses the time it runs. It saves a CloudKit-compatible `DayBoundaryEvent` (all fields defaulted), which syncs to the Watch.
-2. **Automations Dan sets up**, each with *Run Immediately* on:
+### How it works in Rootine
+Built as described in the build plan ("Wake and bed times"). In short:
+1. **One App Intent:** `LogDayBoundaryIntent(kind: wake | bed, source: alarm | focus | schedule, at: Date?)`. If `at` is empty, the intent uses the time it runs. It stores a `Reading` (no new model: the `DayBoundaryEvent` first sketched here became `metric = wakeTime | bedTime`, `subject` = the trigger), which syncs to the Watch.
+2. **Automations Dan sets up** (below), each with *Run Immediately* on:
    - Alarm → Wake Up (or Any) → Is Stopped → wake, `alarm`
    - Focus → Sleep turned off → wake, `focus`, if iOS 26.6 offers that trigger
    - Sleep → Bedtime starts → bed, `schedule`
    - optionally Focus → Sleep turned on → bed, `focus`
-3. **Pace model:**
+3. **Pace model** *(not built yet; REQUIREMENTS.md section 6)*:
    - **Wake time:** the first wake event of the day wins. If none has arrived by the planned wake time plus a grace period (e.g. 90 min), use the routine's manual wake time. Anytime and counted items are then spread from that wake time to the routine's bed time. Exact-time and windowed items stay where they are.
    - **Bed time:** stays as the routine's manual time. Actual bed events go to history and stats only.
-4. **Cross-check:** the next day, read HealthKit `sleepAnalysis` and store the actual sleep start and end beside the signals. Later this could suggest updates to the routine's times.
+4. **Habits** link to the readings today: "Up by 7:00" completes on its own once the alarm is stopped by 7:00.
+5. **Cross-check** *(not built; with the phase 2 HealthKit work)*: the next day, read HealthKit `sleepAnalysis` and store the actual sleep start and end beside the signals. Later this could suggest updates to the routine's times.
+
+### Setting up the automations
+Done by hand on the iPhone, in the Shortcuts app. Rootine must be installed, and opened once so Shortcuts lists its action. On Dan's iPhone (iOS 26.6, 2026-11-07) the Sleep trigger shows as *When Bedtime starts* and *When Waking Up*; the Alarm and Focus labels below come from Apple's guide and reports and are still for check 13.
+
+**Wake: Alarm → Is Stopped** (the main one)
+1. Shortcuts → **Automation** → **+** (or *New Automation*) → **Alarm**.
+2. Pick **Wake Up** (the Sleep schedule's alarm). Use *Any* or a specific alarm if Wake Up isn't listed, or if the morning alarm isn't a Sleep alarm.
+3. Choose **Is Stopped** (not *Is Snoozed*), and **Run Immediately**. Turn *Notify When Run* off once it works.
+4. **Next** → **New Blank Automation** → **Add Action** → search "Rootine" → **Log Wake or Bed Time**.
+5. Set it to **Wake** time from **Alarm**, and leave *Time* empty (it uses the moment the alarm stopped). **Done**.
+
+**Bed: Sleep → Bedtime starts**
+1. **+** → **Sleep** → **Bedtime starts**, **Run Immediately**.
+2. Add **Log Wake or Bed Time**: **Bed** time from **Sleep Schedule**. This logs the scheduled time, not when Dan goes to bed.
+
+**Fallback wake: Sleep → Waking Up**
+- **+** → **Sleep** → **Waking Up**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Schedule**. It fires at the *scheduled* wake time, so it says when the alarm went off, not when Dan got up. Don't combine it with the alarm automation: the first wake of the day wins, and the scheduled time is almost always first, so the alarm's actual time would be dropped. Use it only until the alarm automation is set up.
+
+**Optional: Sleep Focus** (only if the Focus trigger lists Sleep; check 13)
+- **+** → **Focus** → **Sleep** → **When Turning Off**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Focus**. The earlier of this and the alarm wins.
+- **+** → **Focus** → **Sleep** → **When Turning On**, Run Immediately → **Log Wake or Bed Time**: **Bed** from **Sleep Focus**. Closer to the real bed time than the schedule.
+
+**Checking it:** run an automation by hand from its row (or stop a test alarm). The action's output says what it logged ("Wake 6:42 logged for 2026-11-07") or why it ignored the event. To try it without touching real data, switch Rootine to test mode first: the intent writes to whichever store is active. Then link an item in the editor: Data Source → **Add Wake / Bed Time** → *Up by 7:00*.
 
 ### Limitations & risks
 - **Days with no alarm** (weekends, holidays): possibly no signal at all, so the routine's times are used.
 - **Watch dismissal:** stopping the alarm on the Watch may not trigger the iPhone automation. Dan has a Series 8, so this matters.
 - **Phone off or never unlocked since a restart:** automations probably don't run, so wake events can be missing or late. Don't trust a wake time logged long after the alarm.
-- **Naps:** ignore wake events after the first of the day, and bed events before about 18:00.
-- **Bed times after midnight** belong to the previous day; assign bed events to the day of the last wake.
+- **Naps:** wake events after the first of the day are ignored, and so are bed events between 06:00 and 18:00.
+- **Bed times after midnight** (until 06:00) belong to the previous day. A fixed cutoff rather than "the day of the last wake", so a missing wake event can't misplace a bed time.
+- **Night waking:** a wake event before 03:00 (e.g. Sleep Focus turned off in the night) is ignored, so it can't become the day's first wake.
 - **Travel and DST:** store absolute `Date`s and work out local days with the current time zone. The routine's manual times are local wall-clock times.
 - **iOS updates:** the Sleep and Focus triggers have changed between releases.
 
 ### Recommendation
-Build `LogDayBoundaryIntent` and use **Alarm → Is Stopped** for wake time, falling back to the routine's manual times. That's low effort and needs no new permissions. Add the HealthKit cross-check with the section 9 HealthKit work. Skip the Focus filter unless the Sleep Focus on/off triggers turn out to be missing on 26.6. Update REQUIREMENTS.md section 6 once wake events have been tested on the phone.
+*Built* (November 2026). Build `LogDayBoundaryIntent` and use **Alarm → Is Stopped** for wake time, falling back to the routine's manual times. That's low effort and needs no new permissions. Add the HealthKit cross-check with the section 9 HealthKit work. Skip the Focus filter unless the Sleep Focus on/off triggers turn out to be missing on 26.6. Update REQUIREMENTS.md section 6 once wake events have been tested on the phone.
 
 ### Sources
 - https://support.apple.com/guide/shortcuts/apd932ff833f/ios (snippet only)
@@ -819,6 +859,8 @@ These answer the open questions above, and none needs code.
 13. Shortcuts → Automation → **+**: list the sub-options under **Sleep**, **Alarm** (is *Wake Up* listed, *Any*, or both?) and **Focus** (is Sleep listed with turned on / off?). Does each offer *Run Immediately*?
 14. With a test automation that appends the time to a note: stop the alarm on the **Watch**, then on another day on the **iPhone**. Did each one log? On a day with the alarm skipped, did anything fire?
 15. Settings → Focus → Sleep: is there a *Focus Filters* section?
+
+With the intent built, 13 and 14 can use the real automations from section 5 ("Setting up the automations") in test mode instead of a note; see `TESTING.md` §10.11.
 
 **Time in Daylight**
 16. Health → Time in Daylight → Show All Data: how long is each sample, is the Watch the source, and does a sample show lux?

@@ -195,6 +195,7 @@ struct ItemEditorView: View {
                 LabeledContent("Linked to", value: link.summary)
             }
             PlaceLinkRow(link: $draft.link, kind: draft.kind)
+            DayBoundaryLinkRow(link: $draft.link)
             if draft.link != nil {
                 Button("Remove Link", role: .destructive) { draft.link = nil }
             }
