@@ -118,6 +118,7 @@ targets:
       - RootineTests
       - Shared
       - Rootine/Sources/ScreenTime/LogScreenTimeIntent.swift
+      - Rootine/Sources/DayBoundary/LogDayBoundaryIntent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danfoygel.rootine.tests
