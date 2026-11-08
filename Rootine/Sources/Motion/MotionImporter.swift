@@ -26,7 +26,15 @@ final class MotionImporter {
     @ObservationIgnored private let defaults = UserDefaults.standard
     private static let resumeKey = "motion.resumeFrom"
 
-    /// Text for the motion link editor, or `nil` when there's nothing to say.
+    /// Motion is recorded here but Rootine hasn't asked for access yet. Read at render time; `status` changes
+    /// once the prompt is answered, which re-renders whoever showed it.
+    var needsAccess: Bool {
+        _ = status
+        return CMMotionActivityManager.isActivityAvailable() && CMMotionActivityManager
+            .authorizationStatus() == .notDetermined
+    }
+
+    /// Text for the motion screens, or `nil` when there's nothing to say.
     func message(isTestMode: Bool) -> String? {
         if isTestMode {
             return "Motion isn't imported in test mode."
@@ -43,8 +51,9 @@ final class MotionImporter {
         }
     }
 
-    /// Imports into the real store. Asks for access only when `requestingAccess` or some item is already linked
-    /// to motion, so a fresh install doesn't prompt at launch.
+    /// Imports into the real store. Asks for access only when `requestingAccess` (Allow Motion Access in
+    /// Settings, the motion link editor) or some item is already linked to motion, so a fresh install doesn't
+    /// prompt at launch. Once allowed, every launch imports, whether or not any item uses motion.
     func importIfAllowed(into store: DataStore, requestingAccess: Bool = false) async {
         guard !store.isTestMode, !store.isEphemeral, status != .importing,
               mayQuery(store.container.mainContext, requestingAccess: requestingAccess) else { return }

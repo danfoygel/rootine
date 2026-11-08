@@ -462,7 +462,7 @@ Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them
 
 iPhone only, on the real store (the simulator records no motion, and test mode doesn't import). Use "TEST …" items (§6.7). First check that Settings → Privacy & Security → Motion & Fitness → Fitness Tracking is on (DATA.md check 21).
 
-- [ ] Fresh install: no motion prompt at launch. Edit a "TEST Walk" habit → Data Source → **Add Motion**: the Motion & Fitness prompt appears; allow it. The editor then says "Updated <time>."
+- [ ] Fresh install: no motion prompt at launch. Settings → Motion Today shows **Allow Motion Access**; tap it and allow. With no item linked to motion, today's minutes appear there, and Last 7 Days fills in the days the phone already recorded. (If access was already allowed, delete and reinstall to see the prompt again, or check the same through Data Source → **Add Motion** on a "TEST Walk" habit.)
 - [ ] Set it to Walking + Running, at least 10 min, and save. Walk for 15 minutes with the phone in a pocket, then bring Rootine to the foreground: the item completes on its own and its row shows e.g. "16 min of 10 min" (results can lag a few minutes; foreground again if not).
 - [ ] A "TEST Driving" counted item (target 60, Add Motion → Driving, 1 per minute): after a known drive of at least 10 minutes, its total is within a few minutes of the drive's length. Note how far off it is, and whether stops at lights split it.
 - [ ] A "TEST No driving" habit (at most 0 driving minutes): not done during a day without driving; done the next morning after opening Rootine (an hour after midnight or later). On a day with a drive it stays not done.
@@ -470,7 +470,7 @@ iPhone only, on the real store (the simulator records no motion, and test mode d
 - [ ] Don't open Rootine for 2–3 days, then open it: the missed days fill in. Settings → Export Real Data shows `auto` events for the motion items on those days.
 - [ ] The Watch shows the automatic completions (through the relay or CloudKit).
 - [ ] Turn Fitness Tracking off and relaunch: Add Motion shows the "Fitness Tracking is off" message, and nothing crashes. Turn it back on. With Rootine's own Motion & Fitness permission off (Settings → Apps → Rootine), it shows the "can't read motion activity" message.
-- [ ] Settings → Motion lists today ("so far") and the previous 6 days. After a known walk and drive, the minutes are close to what you did; days before the first import show "Not recorded". Pull to refresh updates today.
+- [ ] Settings → Motion Today → Last 7 Days lists today ("so far") and the previous 6 days. After a known walk and drive, the minutes are close to what you did; days before the first import show "Not recorded". Pull to refresh updates today.
 - [ ] In test mode, opening the app imports nothing (the motion editor says so), and back in Real data the real items are unchanged.
 
 ## 11. CI: GitHub Actions

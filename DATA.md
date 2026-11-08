@@ -128,7 +128,7 @@ Section 8, recommendation step 1. It needed no schema change: each day's summary
 - `Shared/Sources/Motion/`: `ReadingSource.motion`, the minute metrics, the pure `MotionSummariser` (`MotionEvent` structs in, `MotionDaySummary` per day out) and `MotionImportWindow` (where each import starts and resumes). Tests in `RootineTests/MotionTests.swift`.
 - `Rootine/Sources/Motion/MotionImporter` (iPhone only) runs on launch and every foreground, and from the motion link editor (which shows the permission prompt). It doesn't import in test mode. `NSMotionUsageDescription` is in `project.yml`; there's no `BGAppRefreshTask` yet.
 - Editor: "Add Motion" in the Data Source section; habits take at least / at most N minutes, counted items one unit per N minutes.
-- Settings → Motion (also "Last 7 Days" in the motion editor) lists minutes per activity for each of the last 7 days, from the stored readings (pure part: `MotionHistory`). Pull to refresh imports again. A day with no readings shows "Not recorded", not zeros.
+- Settings has a **Motion Today** section, independent of items and links: today's minutes per activity, an "Allow Motion Access" button until access has been asked for, and "Last 7 Days" (also in the motion editor), which lists each of the last 7 days (pure part: `MotionHistory`). Both import when they appear; pull to refresh imports again. A day with no readings shows "Not recorded", not zeros.
 - Done: a week of imports on the iPhone with "Walk 20 min" completing on its own and driving minutes matching a known drive (`TESTING.md` §10.12).
 
 ### Not planned
@@ -795,7 +795,7 @@ Built (recommendation step 1, see the build plan): the daily import and motion-l
   - Keep the manager in a `@MainActor` service.
   - Wrap the query in `withCheckedThrowingContinuation`, converting each event to a `Sendable` struct inside the handler.
   - Deliver on `.main` and mark the closure `@Sendable`, to avoid tripping Swift 6's runtime isolation checks. The importer does both.
-- **Permission:** the app asks only once an item is linked to motion (or the motion link editor opens), not at first launch. `.restricted` (Fitness Tracking off) and `.denied` show a message in the motion link editor.
+- **Permission:** the app asks only when Dan taps Allow Motion Access in Settings, opens the motion link editor, or has an item linked to motion, never at first launch. Once allowed, every launch imports, whether or not any item uses motion. `.restricted` (Fitness Tracking off) and `.denied` show a message in the motion link editor.
 - **With location:** a driving, walking or cycling segment between leaving one saved place and arriving at another becomes a commute, e.g. "Home → Work: 24 min driving".
 - **Habits:**
   - "Walk ≥ 20 min": `onFootMinutes` at least 20 (built). This catches easy walks that HealthKit exercise minutes miss.
