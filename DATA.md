@@ -595,7 +595,7 @@ Done by hand on the iPhone, in the Shortcuts app. Rootine must be installed, and
 2. Add **Log Wake or Bed Time**: **Bed** time from **Sleep Schedule**. This logs the scheduled time, not when Dan goes to bed.
 
 **Fallback wake: Sleep → Waking Up**
-- **+** → **Sleep** → **Waking Up**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Schedule**. It fires at the *scheduled* wake time, so it says when the alarm went off, not when Dan got up. Use it only alongside the alarm automation (the earlier wake wins, so on a normal morning it sets the time), or on its own until the alarm one is set up.
+- **+** → **Sleep** → **Waking Up**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Schedule**. It fires at the *scheduled* wake time, so it says when the alarm went off, not when Dan got up. Don't combine it with the alarm automation: the first wake of the day wins, and the scheduled time is almost always first, so the alarm's actual time would be dropped. Use it only until the alarm automation is set up.
 
 **Optional: Sleep Focus** (only if the Focus trigger lists Sleep; check 13)
 - **+** → **Focus** → **Sleep** → **When Turning Off**, Run Immediately → **Log Wake or Bed Time**: **Wake** from **Sleep Focus**. The earlier of this and the alarm wins.
