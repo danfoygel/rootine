@@ -116,6 +116,7 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - readings: one per visit in whole minutes, on the arrival day, none under the minimum dwell or for unmatched visits, and open visits counting up to their cap;
   - "Save this place?" clustering, retention cut-offs and the stale-visit check.
   - Through a store: a departure completes a visit habit once; repeated monitor and visit events don't double-complete; minutes add up across visits; open visits catch up on refresh; saving a place matches earlier visits; retention pruning and delete-history remove visits and readings but keep completions; deleting a place removes only its own history.
+- **`ScreenTimeTests.swift`, `ScreenTimeDayTests.swift`** (DATA.md phase 1): the Screen Time parser against fixture text and JSON: the action's `Name (1h 35m)` lines, JSON rows with seconds or text durations, the description fallback, keys in any case, one object per line, and malformed rows counted as skipped; apps and websites kept apart; one reading per app per day, with zero readings for linked apps that a non-empty run left out. Same-day runs: an accumulating limit isn't met until the day is over (goals and non-accumulating limits don't wait), and re-runs update readings in place, touching only changed values. The Settings view's day summary keeps apps and websites apart, most used first, with exact durations. `LogScreenTimeIntent.perform()` (iOS bundle only) runs against an in-memory `DataStore`: it logs yesterday by default and completes limit habits for that day, a re-run changes nothing, a later run replaces the day, today's runs show the running total without closing limits, unreadable input throws and changes nothing, and empty input (today, just after midnight) is a quiet no-op. The intent's store is set directly on its `@AppDependency`, which works outside the App Intents runtime.
 - **Migration (`MigrationTests` in `ReadingTests.swift`):** every released schema version stays in `RootineSchema.swift` as frozen model copies (`RootineSchemaV1.Item`, `RootineSchemaV2.Reading` etc.). One test per frozen version writes a store with it (V1, V2), opens it with the current schema and `RootineMigrationPlan`, and checks that the data survives with the new fields at their defaults and the new models (`Place`, `PlaceVisit`) empty and usable. This takes the place of a committed binary store file: the frozen copies are the fixture. Schema changes stay additive (REQUIREMENTS §14); each new version adds a frozen copy of the one before it and a check here.
 
 ### 4.4 Sync: `RelayState`, `RelayPayload`, `TodayData`, `WatchRelay`
@@ -456,6 +457,21 @@ Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them
 - [ ] Phone restarted overnight and not unlocked: note whether the wake automation runs, and how late.
 - [ ] Settings → Focus → Sleep: is there a *Focus Filters* section (check 15)? Only matters if the Focus triggers are missing.
 - [ ] Back in real data: no test wake or bed readings or check-offs show.
+
+### 10.12 Screen Time
+
+Set up as in DATA.md section 1, "Setting it up on the iPhone", with Rootine on Real data. Compare against Settings → Screen Time → See All App & Website Activity → Day, for the previous day and this iPhone.
+- [ ] Running the shortcut by hand shows `<yesterday>: N apps, M websites` with no unreadable rows. If it fails, the JSON-rows fallback in the setup steps works instead.
+- [ ] Settings → Screen Time → Recent Shortcut Runs shows each run's raw input as `Name (1h 35m)` lines, with no failures.
+- [ ] Rootine's Settings → Screen Time matches Settings → Screen Time → See All App & Website Activity for today and yesterday: the total, each app and each website (Rootine shows seconds; Apple rounds). "Logged" shows the last run's time.
+- [ ] In an item's Data Source → Screen Time, the apps (and, under Website, the domains) from the run are offered, most used first, in the same order as Settings.
+- [ ] A limit habit under its limit (e.g. "Under 1h Instagram") shows as done for yesterday after the run, on the iPhone and then the Watch; one over its limit stays open. An app not used at all completes a limit on it.
+- [ ] A goal (e.g. at least 30 min in Kindle) completes once the day reached it.
+- [ ] Running the shortcut a second time changes nothing (no extra completions). Un-checking an automatic completion by hand, then running again, leaves it un-checked.
+- [ ] The 06:00 automation runs without a prompt while the phone is locked, every morning for a week, and each morning's results match Settings.
+- [ ] During the day: after using a limited app, then opening Rootine, its row shows today's running total (e.g. "35m of 1h") matching Settings, and the limit stays open. A goal completes once reached. The next morning the limit completes for yesterday if it stayed under.
+- [ ] The *Is Opened* / *Is Closed* automations run without a prompt and don't noticeably slow opening Rootine.
+- [ ] In test mode, a run writes test data only, and the real data is untouched after switching back.
 
 ## 11. CI: GitHub Actions
 
