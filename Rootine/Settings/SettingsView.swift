@@ -15,6 +15,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 LocationSettingsSection()
+                ScreenTimeSettingsSection()
                 testDataSection
                 realDataSection
             }
