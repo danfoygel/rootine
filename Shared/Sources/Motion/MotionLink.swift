@@ -41,6 +41,16 @@ enum MotionActivity: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var symbolName: String {
+        switch self {
+        case .onFoot, .walking: "figure.walk"
+        case .running: "figure.run"
+        case .cycling: "figure.outdoor.cycle"
+        case .driving: "car"
+        case .stationary: "figure.stand"
+        }
+    }
+
     /// A link on this activity's daily minutes.
     func link(_ rule: ItemLink.Rule) -> ItemLink {
         ItemLink(metric: metric, rule: rule, unit: .suffix("min"))

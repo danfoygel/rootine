@@ -63,10 +63,11 @@ private struct MotionLinkEditor: View {
                     Text("A limit is decided once the day is over, an hour after midnight. “At most 0” means none.")
                 }
             }
-            if let message = importer.message(isTestMode: store.isTestMode) {
-                Section {
+            Section {
+                if let message = importer.message(isTestMode: store.isTestMode) {
                     Text(message).foregroundStyle(.secondary)
                 }
+                NavigationLink("Last 7 Days") { MotionHistoryView() }
             }
         }
         .navigationTitle("Motion")

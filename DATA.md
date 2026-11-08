@@ -128,6 +128,7 @@ Section 8, recommendation step 1. It needed no schema change: each day's summary
 - `Shared/Sources/Motion/`: `ReadingSource.motion`, the minute metrics, the pure `MotionSummariser` (`MotionEvent` structs in, `MotionDaySummary` per day out) and `MotionImportWindow` (where each import starts and resumes). Tests in `RootineTests/MotionTests.swift`.
 - `Rootine/Sources/Motion/MotionImporter` (iPhone only) runs on launch and every foreground, and from the motion link editor (which shows the permission prompt). It doesn't import in test mode. `NSMotionUsageDescription` is in `project.yml`; there's no `BGAppRefreshTask` yet.
 - Editor: "Add Motion" in the Data Source section; habits take at least / at most N minutes, counted items one unit per N minutes.
+- Settings → Motion (also "Last 7 Days" in the motion editor) lists minutes per activity for each of the last 7 days, from the stored readings (pure part: `MotionHistory`). Pull to refresh imports again. A day with no readings shows "Not recorded", not zeros.
 - Done: a week of imports on the iPhone with "Walk 20 min" completing on its own and driving minutes matching a known drive (`TESTING.md` §10.12).
 
 ### Not planned

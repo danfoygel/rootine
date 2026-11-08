@@ -270,6 +270,61 @@ struct MotionLinkTests {
     }
 }
 
+struct MotionHistoryTests {
+    private func reading(
+        _ metric: ReadingMetric,
+        _ minutes: Double,
+        on day: LocalDay,
+        complete: Bool = true,
+        source: ReadingSource = .motion
+    ) -> ReadingValue {
+        ReadingValue(source: source, metric: metric, day: day, start: at(0, on: day),
+                     end: complete ? at(0, on: day.adding(days: 1)) : nil, value: minutes)
+    }
+
+    @Test func sevenDaysNewestFirstWithGapsKept() {
+        let yesterday = fixedToday.adding(days: -1)
+        let days = MotionHistory.days(from: [reading(.walkingMinutes, 20, on: yesterday)], through: fixedToday)
+        #expect(days.map(\.day) == (0 ..< 7).map { fixedToday.adding(days: -$0) })
+        #expect(days.map(\.hasData) == [false, true, false, false, false, false, false])
+        #expect(days[0].entries.isEmpty)
+    }
+
+    @Test func entriesListActivitiesWithTimeInOrderAndSkipOnFoot() throws {
+        let readings = [
+            reading(.stationaryMinutes, 600, on: fixedToday), reading(.automotiveMinutes, 42, on: fixedToday),
+            reading(.walkingMinutes, 14, on: fixedToday), reading(.runningMinutes, 0, on: fixedToday),
+            reading(.onFootMinutes, 14, on: fixedToday), reading(.cyclingMinutes, 0, on: fixedToday),
+        ]
+        let today = try #require(MotionHistory.days(from: readings, through: fixedToday).first)
+        #expect(today.entries == [
+            .init(activity: .walking, minutes: 14), .init(activity: .driving, minutes: 42),
+            .init(activity: .stationary, minutes: 600),
+        ])
+        #expect(today.isComplete)
+    }
+
+    @Test func aDayWithOnlyZerosHasDataButNoEntries() throws {
+        let day = try #require(MotionHistory.days(from: [reading(.walkingMinutes, 0, on: fixedToday)],
+                                                  through: fixedToday).first)
+        #expect(day.hasData)
+        #expect(day.entries.isEmpty)
+    }
+
+    @Test func todaySoFarIsIncomplete() throws {
+        let readings = [reading(.walkingMinutes, 10, on: fixedToday, complete: false)]
+        let day = try #require(MotionHistory.days(from: readings, through: fixedToday).first)
+        #expect(!day.isComplete)
+    }
+
+    @Test func otherSourcesAreIgnored() throws {
+        let other = ReadingSource(rawValue: "other")
+        let readings = [reading(.walkingMinutes, 10, on: fixedToday, source: other)]
+        let day = try #require(MotionHistory.days(from: readings, through: fixedToday).first)
+        #expect(!day.hasData)
+    }
+}
+
 @MainActor
 struct MotionStoreTests {
     @Test func reimportingADayIsHarmless() throws {
