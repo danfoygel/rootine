@@ -30,5 +30,6 @@ extension ScenarioBuilder {
         ])
         // Un-checked by hand after the reading completed it: loading adds the automatic +1 first.
         record(plan("Under 2h Safari"), -1, on: today)
+        addHealthLinks()
     }
 }

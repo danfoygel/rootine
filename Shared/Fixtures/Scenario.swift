@@ -26,7 +26,9 @@ enum Scenario: String, CaseIterable, Identifiable, Codable, Sendable {
     case relayOverlay
     /// Items fed by readings (DATA.md, build plan): Steps at 6,214 of 10,000; "Under 1h Instagram" done
     /// automatically at 52m; "Read 30m on Kindle" not done at 15m; Floss, linked to a metric with no readings
-    /// today, left alone; and "Under 2h Safari" done automatically but un-checked by hand.
+    /// today, left alone; and "Under 2h Safari" done automatically but un-checked by hand. Health-linked items:
+    /// Take BP done from a reading; Sleep 7h not done at last night's 6h 30m; Water at 750 of 2,000 ml;
+    /// "Under 5m low SpO2" done at 2m; Work out done by a yoga session; "20m in daylight" not done at 15m.
     case dataLinks
     /// 60 generated items with long names covering every pattern and time mode, and a generated year of
     /// history: for UI density and performance budgets.

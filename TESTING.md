@@ -109,7 +109,8 @@ Tests use `RootineStore.makeContainer(inMemory: true)`, a fresh container per te
   - **CloudKit-compatibility guard:** walks every schema version in `RootineMigrationPlan` and fails on an attribute that is required with no default, a unique attribute or uniqueness constraint, or a relationship that is required or has no inverse. A temporary unique attribute plus a required one with no default produced exactly those failures. It complements the device check that the CloudKit store opens (§10.1).
   - `StoreActions`: recording 0 inserts nothing, and deleting an item removes only its own events.
   - The editor round trip (`Item` → `ItemDraft` → saved item) keeps the plan for every pattern × time mode.
-- **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store.
+- **`ReadingTests.swift`:** item links (subject filtering, combine modes, rules, labels, Codable), the pure `ReadingEvaluator` (no data leaves items alone; changes are relative to the automatic total, so re-runs do nothing), and the store actions: replacing a source's readings is idempotent and touches only that source and day, a manual undo of an automatic completion stays undone, counted items add readings to manual taps, and previous-day readings complete that day. The `dataLinks` scenario is checked through a real store, including its Health-linked items, whose readings come from samples run through `HealthAggregator`.
+- **`HealthTests.swift`:** HealthKit's pure layer (`Shared/Sources/Health/`), from samples built in code: every type's daily aggregation (sums, distinct counts, workouts per activity, time asleep with overlapping sources counted once, the overnight SpO2 minimum, average and time below 90%, the heart-rate range); exact duplicates (ViHealth re-syncing a night) counting once; empty days having no readings; the midnight split, where calendar types cut at midnight and a night (sleep, SpO2) belongs to the day it ends, including across the November DST change; the look-back on affected days; editor choices converting minutes, hours and percentages to reading units and back; and aggregated readings completing linked items through a real store, each type replacing only its own readings. `HealthReader` itself is a shell checked on the device (§10.12).
 - **`LocationTests.swift`** (DATA.md phase 3a):
   - place matching within radius plus accuracy, nearest first, and nothing for approximate fixes;
   - `VisitLog` merging: an arrival then a departure fill in one visit; repeated `CLVisit`s and `CLMonitor` enter/exit events for one stay stay one visit; a brief exit and return; arriving elsewhere closes an open visit; a stale open visit is capped;
@@ -245,7 +246,7 @@ There are two kinds of data. The **library** is items and categories; later it w
 | `heavy` | 60 generated items with long names, every pattern; a generated year | about 12.6k events | Performance budgets, UI density |
 | `heavyThreeYears` | The `heavy` library with three generated years | | Device soak (§10.8) |
 
-Time zones, DST and first weekday are test parameters, not separate scenarios. New features extend these scenarios rather than adding parallel ones. Routines join `typicalDay`; streak histories with known lengths, HealthKit-linked items and place-based items follow with their features.
+Time zones, DST and first weekday are test parameters, not separate scenarios. New features extend these scenarios rather than adding parallel ones. Routines join `typicalDay`; streak histories with known lengths and place-based items follow with their features. HealthKit-linked items are in `dataLinks` (`Scenario+Health.swift`): test mode never reads Health, so this is where its readings come from.
 
 ### 6.4 History generator
 
@@ -456,6 +457,22 @@ Set up the automations in `DATA.md` §5 ("Setting up the automations"). Try them
 - [ ] Phone restarted overnight and not unlocked: note whether the wake automation runs, and how late.
 - [ ] Settings → Focus → Sleep: is there a *Focus Filters* section (check 15)? Only matters if the Focus triggers are missing.
 - [ ] Back in real data: no test wake or bed readings or check-offs show.
+
+### 10.12 HealthKit
+
+iPhone only, on the real store (HealthKit is never read in test mode; test-mode readings come from scenarios). Background delivery doesn't run in the simulator. First run DATA.md's device checks 3–7 (whether and how often ViHealth writes to Health). Use "TEST …" items (§6.7).
+
+- [ ] The first build with HealthKit installs (the App ID gains the HealthKit capability through automatic signing with `-allowProvisioningUpdates`) and launches with no Health prompt while no item is linked.
+- [ ] Link an item to Health (Edit → Data Source → Health): saving it asks for read access to just that type (for blood pressure: systolic and diastolic). Linking a second type asks again for only the new one.
+- [ ] "TEST Walk" at least 10,000 steps: the row shows today's steps matching the Health app, and it completes on its own once Health passes 10,000. The Watch shows it done (relay or CloudKit).
+- [ ] "TEST Water" counted in ml, 1 per ml: logging 250 ml in Health adds 250 within a minute or so with Rootine in the background.
+- [ ] "TEST Take BP" at least 1 reading: a Checkme reading completes it without opening Rootine. Note whether ViHealth had to be opened, and how long it took.
+- [ ] "TEST SpO2" overnight lowest at least 90%: after a night with the O2 Ring, the reading lands on the morning's day, and re-syncing the night in ViHealth doesn't change it.
+- [ ] Time asleep, stand hours, exercise minutes, workouts (one activity and Any), mindful minutes and Time in Daylight each match the Health app for a day.
+- [ ] Unchecking an automatically completed item by hand keeps it unchecked when more samples arrive.
+- [ ] In test mode, no Health prompt appears and no real readings are written; switching back to Real catches up on samples that arrived meanwhile.
+- [ ] Removing the last link to a type stops the reads (no new readings of it after a day).
+- [ ] After a reboot with the phone locked, readings resume once it's unlocked (HealthKit holds back delivery while locked).
 
 ## 11. CI: GitHub Actions
 

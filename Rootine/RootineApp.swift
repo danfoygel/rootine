@@ -7,7 +7,7 @@ struct RootineApp: App {
     @State private var location: LocationRecorder
 
     init() {
-        let store = DataStore.launch()
+        let store = DataStore.launch().readingHealth()
         _store = State(initialValue: store)
         // App Intents (Screen Time) run in this process and write to the same store.
         AppDependencyManager.shared.add(dependency: store)
